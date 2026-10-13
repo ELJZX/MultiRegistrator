@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multiregistrator"
+version = "0.0.1"
+description = "MultiRegistrator - Modbus TCP data logger with server/client architecture"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "MultiRegistrator" }]
+dependencies = [
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
+    "pymodbus>=3.6",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+include = ["multiregistrator*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+pythonpath = ["."]

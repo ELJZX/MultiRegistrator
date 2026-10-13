@@ -1,0 +1,1 @@
+"""MultiRegistrator test suite."""
