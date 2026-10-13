@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 from datetime import datetime
 from typing import Optional
 
@@ -10,6 +9,7 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QHeaderView,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -27,7 +27,7 @@ from ... import __version__
 from ...common.archive import ArchiveReader, ArchiveWriter
 from ...common.config import ServerConfig, load_server_config, save_server_config
 from ...common.models import DeviceConfig, DeviceStatus
-from ..api import ApiServer, create_app
+from ..api import ApiServer, create_app, is_port_available, resolve_bind_host
 from ..modbus import ModbusReader
 from ..service import ServerService
 from .device_dialog import DeviceDialog
@@ -84,10 +84,18 @@ class ServerMainWindow(QMainWindow):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.itemSelectionChanged.connect(lambda: self._update_values())
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setStretchLastSection(True)
+        header.setMinimumSectionSize(90)
+        self.table.setTextElideMode(Qt.ElideNone)
 
         self.values_table = QTableWidget(0, 2)
         self.values_table.setHorizontalHeaderLabels(["Канал", "Значение"])
         self.values_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        values_header = self.values_table.horizontalHeader()
+        values_header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        values_header.setStretchLastSection(True)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -248,11 +256,13 @@ class ServerMainWindow(QMainWindow):
         if self.service is not None and self.service.is_running:
             return
         settings = self.config.settings
-        if not self._port_available(settings.api_host, settings.api_port):
+        api_host = resolve_bind_host(settings.api_host, settings.api_port)
+        if api_host is None:
             QMessageBox.critical(
                 self,
                 "Порт занят",
-                f"Не удалось занять порт {settings.api_port}. Измените порт в настройках.",
+                f"Не удалось занять {settings.api_host}:{settings.api_port}. "
+                f"Измените адрес или порт в настройках.",
             )
             return
         archive_dir = settings.resolve_archive_dir()
@@ -265,15 +275,27 @@ class ServerMainWindow(QMainWindow):
             devices=self.config.devices,
             on_status=self.bridge.statusChanged.emit,
         )
-        self.service.start()
-        app = create_app(self.service, ArchiveReader(archive_dir))
-        self.api = ApiServer(app, settings.api_host, settings.api_port)
-        self.api.start()
-
+        # Enable "stop" right away so the server can always be stopped, even if
+        # starting the HTTP API fails afterwards.
         self.start_action.setEnabled(False)
         self.stop_action.setEnabled(True)
+        try:
+            self.service.start()
+            app = create_app(self.service, ArchiveReader(archive_dir))
+            self.api = ApiServer(app, api_host, settings.api_port)
+            self.api.start()
+        except Exception as exc:  # pragma: no cover - defensive
+            self._stop_server()
+            QMessageBox.critical(self, "Ошибка запуска сервера", str(exc))
+            return
+
+        if api_host != settings.api_host:
+            self._log(
+                f"Адрес {settings.api_host} недоступен для прослушивания, "
+                f"API слушает 0.0.0.0:{settings.api_port}"
+            )
         self.statusBar().showMessage(
-            f"Сервер запущен. API: {settings.api_host}:{settings.api_port}. Архив: {archive_dir}"
+            f"Сервер запущен. API: {api_host}:{settings.api_port}. Архив: {archive_dir}"
         )
         self._log(f"Сервер запущен. Архив: {archive_dir}")
 
@@ -299,13 +321,7 @@ class ServerMainWindow(QMainWindow):
 
     @staticmethod
     def _port_available(host: str, port: int) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                sock.bind((host, port))
-            except OSError:
-                return False
-        return True
+        return is_port_available(host, port)
 
     # -- device management --------------------------------------------------
     def _add_device(self) -> None:

@@ -9,7 +9,7 @@ import time
 from ..common.archive import ArchiveReader, ArchiveWriter
 from ..common.config import load_server_config, save_server_config
 from ..common.models import DeviceStatus
-from .api import ApiServer, create_app
+from .api import ApiServer, create_app, resolve_bind_host
 from .modbus import ModbusReader
 from .service import ServerService
 
@@ -24,7 +24,8 @@ def _build_runtime(config, on_status=None):
     writer = ArchiveWriter(archive_dir)
     service = ServerService(reader, writer, devices=config.devices, on_status=on_status)
     app = create_app(service, ArchiveReader(archive_dir))
-    api = ApiServer(app, settings.api_host, settings.api_port)
+    api_host = resolve_bind_host(settings.api_host, settings.api_port) or settings.api_host
+    api = ApiServer(app, api_host, settings.api_port)
     return service, api, archive_dir
 
 
@@ -48,9 +49,9 @@ def _run_check(config) -> int:
     service, api, archive_dir = _build_runtime(config)
     service.start()
     api.start()
-    ok = _wait_for_api(settings.api_host, settings.api_port)
+    ok = _wait_for_api(api.host, api.port)
     print(
-        f"API {'OK' if ok else 'FAILED'} at {settings.api_host}:{settings.api_port}\n"
+        f"API {'OK' if ok else 'FAILED'} at {api.host}:{api.port}\n"
         f"archive: {archive_dir}\n"
         f"devices: {len(config.devices)}"
     )
@@ -69,10 +70,10 @@ def _run_headless(config) -> int:
     service, api, archive_dir = _build_runtime(config, on_status=on_status)
     service.start()
     api.start()
-    ok = _wait_for_api(settings.api_host, settings.api_port)
+    ok = _wait_for_api(api.host, api.port)
     print("MultiRegistrator server (headless)")
     print(f"  archive : {archive_dir}")
-    print(f"  API     : http://{settings.api_host}:{settings.api_port} [{'OK' if ok else 'FAILED'}]")
+    print(f"  API     : http://{api.host}:{api.port} [{'OK' if ok else 'FAILED'}]")
     print("  Press Ctrl+C to stop.")
     try:
         while True:

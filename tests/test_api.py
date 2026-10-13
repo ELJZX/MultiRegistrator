@@ -5,8 +5,10 @@ from fastapi.testclient import TestClient
 
 from multiregistrator.common.archive import ArchiveReader, ArchiveWriter
 from multiregistrator.common.models import DeviceConfig, RegisterConfig
-from multiregistrator.server.api import create_app
+from multiregistrator.server.api import create_app, is_port_available, resolve_bind_host
 from multiregistrator.server.service import ServerService
+
+from .conftest import free_port
 
 
 class FakeReader:
@@ -124,3 +126,19 @@ def test_data_endpoint_bad_datetime(client):
 
 def test_data_endpoint_missing_params(client):
     assert client.get("/api/devices/d1/data").status_code == 422
+
+
+def test_is_port_available_on_free_port():
+    assert is_port_available("127.0.0.1", free_port()) is True
+
+
+def test_resolve_bind_host_keeps_working_host():
+    port = free_port()
+    assert resolve_bind_host("127.0.0.1", port) == "127.0.0.1"
+
+
+def test_resolve_bind_host_falls_back_to_all_interfaces():
+    # 203.0.113.0/24 is TEST-NET-3 and is never assigned to a local adapter,
+    # so binding it fails and the helper must fall back to 0.0.0.0.
+    assert resolve_bind_host("203.0.113.1", free_port()) == "0.0.0.0"
+

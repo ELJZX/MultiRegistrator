@@ -7,6 +7,7 @@ FastAPI so it can be unit tested with :class:`fastapi.testclient.TestClient`.
 
 from __future__ import annotations
 
+import socket
 import threading
 from datetime import datetime
 from typing import Optional
@@ -17,6 +18,34 @@ from .. import __version__
 from ..common.archive import ArchiveReader
 from ..common.models import DeviceConfig, DeviceStatus, TimeSeries
 from .service import ServerService
+
+
+def is_port_available(host: str, port: int) -> bool:
+    """Return True if ``host:port`` can be bound for listening."""
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def resolve_bind_host(host: str, port: int) -> Optional[str]:
+    """Pick an address the API can actually bind.
+
+    Some Windows setups refuse to bind a specific adapter address
+    (``WinError 10013``), so if the configured host cannot be bound we fall
+    back to ``0.0.0.0`` which still accepts connections on every interface.
+    Returns ``None`` if the port is busy everywhere.
+    """
+
+    if is_port_available(host, port):
+        return host
+    if host not in ("0.0.0.0", "", "::") and is_port_available("0.0.0.0", port):
+        return "0.0.0.0"
+    return None
 
 
 def _status_dict(status: DeviceStatus) -> dict:

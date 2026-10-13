@@ -8,7 +8,9 @@ finalization path that can abort on some PySide6/Python combinations.
 from __future__ import annotations
 
 import os
+import socket
 import sys
+import tempfile
 import traceback
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -110,9 +112,84 @@ def _channel_dialog():
 
 @check("graph window")
 def _graph_window():
+    import pyqtgraph as pg
+
     window = GraphWindow(ServerApiClient("127.0.0.1", 1), "d1", "Test")
     assert window.curves == {}
+    assert pg.getConfigOption("background") == "w"
+    assert window.plot.backgroundBrush().color().name() == "#ffffff"
     window.close()
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@check("server table headers")
+def _server_headers():
+    from PySide6.QtWidgets import QHeaderView
+
+    window = ServerMainWindow(server_config())
+    assert window.table.columnCount() == 7
+    assert window.table.horizontalHeader().sectionResizeMode(0) == QHeaderView.ResizeToContents
+    assert window.table.horizontalHeader().stretchLastSection() is True
+    window.close()
+
+
+@check("server start/stop buttons")
+def _server_start_stop():
+    config = server_config()
+    config.settings.api_host = "127.0.0.1"
+    config.settings.api_port = _free_port()
+    config.settings.archive_dir = tempfile.mkdtemp()
+    window = ServerMainWindow(config)
+    try:
+        assert window.stop_action.isEnabled() is False
+        window._start_server()
+        assert window.start_action.isEnabled() is False
+        assert window.stop_action.isEnabled() is True
+        assert window.service is not None and window.service.is_running
+        assert window.api is not None and window.api.is_running
+    finally:
+        window._stop_server()
+    assert window.start_action.isEnabled() is True
+    assert window.stop_action.isEnabled() is False
+    window.close()
+
+
+@check("client connects without dialog")
+def _client_connect_without_dialog():
+    import multiregistrator.client.ui.main_window as client_mw
+
+    class FakeApi:
+        def __init__(self, host, port):
+            self.host = host
+            self.port = port
+
+        def health(self):
+            return {"status": "ok"}
+
+        def list_devices(self):
+            return []
+
+        def close(self):
+            pass
+
+    original = client_mw.ServerApiClient
+    client_mw.ServerApiClient = FakeApi
+    try:
+        config = ClientConfig(settings=ClientSettings(server_host="127.0.0.1", server_port=9999))
+        window = ClientMainWindow(config)
+        assert window.disconnect_action.isEnabled() is False
+        window._connect()
+        assert window.api is not None
+        assert window.connect_action.isEnabled() is False
+        assert window.disconnect_action.isEnabled() is True
+        window.close()
+    finally:
+        client_mw.ServerApiClient = original
 
 
 def main() -> int:

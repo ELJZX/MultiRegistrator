@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import pyqtgraph as pg
+
+pg.setConfigOption("background", "w")
+pg.setConfigOption("foreground", "k")
+
 from PySide6.QtCore import QDateTime, Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -21,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...common.models import TimeSeries
+from ...common.plotting import clamp_period_start, with_margin
 from ..api_client import ServerApiClient, ServerApiError
 from .channel_dialog import ChannelDialog
 
@@ -108,6 +113,7 @@ class GraphWindow(QMainWindow):
         panel_layout.addStretch(1)
 
         self.plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem(orientation="bottom")})
+        self.plot.setBackground("w")
         self.plot.showGrid(x=True, y=True, alpha=0.3)
         self.plot.setLabel("bottom", "Время")
         self.plot.setLabel("left", "Значение")
@@ -178,10 +184,19 @@ class GraphWindow(QMainWindow):
             self.statusBar().showMessage("За указанный период данные не найдены")
             return
         self._plot_series(series)
+        self._apply_time_window(start, end)
         self._autoscale_y()
         self.statusBar().showMessage(
             f"Построено каналов: {len(series)} за {start:%d.%m.%Y %H:%M} — {end:%d.%m.%Y %H:%M}"
         )
+
+    def _apply_time_window(self, start: datetime, end: datetime) -> None:
+        """Limit the visible time span to 24 h (+10%) and leave zoom headroom."""
+
+        view_start = clamp_period_start(start, end)
+        self.plot.setXRange(view_start.timestamp(), end.timestamp(), padding=0.0)
+        pad_start, pad_end = with_margin(view_start, end, 0.1)
+        self.plot.setLimits(xMin=pad_start.timestamp(), xMax=pad_end.timestamp())
 
     def _clear_plot(self) -> None:
         self.plot.clear()

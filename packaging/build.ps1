@@ -9,7 +9,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 Write-Host "Building MultiRegistratorServer.exe ..."
-python -m PyInstaller --noconfirm --clean --onefile --windowed `
+python -m PyInstaller --noconfirm --clean --onefile --windowed --specpath build `
     --name MultiRegistratorServer `
     --collect-submodules uvicorn `
     --collect-submodules pymodbus `
@@ -25,14 +25,14 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed `
     run_server.py
 
 Write-Host "Building MultiRegistratorClient.exe ..."
-python -m PyInstaller --noconfirm --clean --onefile --windowed `
+python -m PyInstaller --noconfirm --clean --onefile --windowed --specpath build `
     --name MultiRegistratorClient `
     --collect-submodules pyqtgraph `
     --collect-submodules requests `
     run_client.py
 
 Write-Host "Building MultiRegistratorTestDevice.exe ..."
-python -m PyInstaller --noconfirm --clean --onefile --console `
+python -m PyInstaller --noconfirm --clean --onefile --console --specpath build `
     --name MultiRegistratorTestDevice `
     test_device.py
 
