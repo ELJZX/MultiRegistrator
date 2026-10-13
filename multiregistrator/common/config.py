@@ -8,6 +8,7 @@ makes them easy to unit test with a temporary directory.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -16,8 +17,15 @@ from .models import DeviceConfig
 
 
 def app_root() -> Path:
-    """Root directory of the program (the folder that also holds ``archive``)."""
+    """Root directory of the program (the folder that also holds ``archive``).
 
+    When frozen with PyInstaller the executable lives next to the
+    ``archive``/``config`` folders, so its location is used instead of the
+    bundled (temporary) source location.
+    """
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[2]
 
 

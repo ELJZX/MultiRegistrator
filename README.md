@@ -55,6 +55,21 @@ python run_client.py
 затем нажать «Запустить сервер». После этого пользователи запускают клиент,
 подключаются к серверу и открывают графики по устройствам.
 
+## Сборка .exe
+
+```powershell
+python -m pip install -r requirements-dev.txt
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+Результат — два автономных исполняемых файла в папке `dist`:
+
+* `dist\MultiRegistratorServer.exe` — сервер;
+* `dist\MultiRegistratorClient.exe` — клиент.
+
+Это self-contained сборки (`--onefile --windowed`), Python на целевой машине не требуется.
+Папки `config` и `archive` создаются рядом с `.exe`.
+
 ## Конфигурация
 
 * `config/server_config.json` — настройки API, папка архива, список устройств.
