@@ -9,6 +9,7 @@ from multiregistrator.common.models import (
     RegisterConfig,
     TimeSeries,
     decode_registers,
+    encode_registers,
     format_timestamp,
     parse_timestamp,
     register_word_count,
@@ -61,6 +62,39 @@ def test_decode_rejects_empty():
 def test_decode_rejects_short_32bit():
     with pytest.raises(ValueError):
         decode_registers([1], DataType.INT32)
+
+
+@pytest.mark.parametrize(
+    "data_type,value",
+    [
+        ("uint16", 1234.0),
+        ("int16", -1234.0),
+        ("uint32", 70000.0),
+        ("int32", -70000.0),
+        ("float32", 23.456),
+    ],
+)
+def test_encode_decode_roundtrip(data_type, value):
+    words = encode_registers(value, data_type)
+    expected_words = register_word_count(data_type)
+    assert len(words) == expected_words
+    assert decode_registers(words, data_type) == pytest.approx(value, rel=1e-4)
+
+
+def test_encode_applies_scale():
+    words = encode_registers(50.0, "uint16", scale=0.1)
+    assert words == [500]
+    assert decode_registers(words, "uint16", scale=0.1) == pytest.approx(50.0)
+
+
+def test_encode_word_order():
+    assert encode_registers(1.0, "uint32", word_order="big") == [0, 1]
+    assert encode_registers(1.0, "uint32", word_order="little") == [1, 0]
+
+
+def test_encode_float32_matches_decode():
+    words = encode_registers(30.0, "float32")
+    assert words == [0x41F0, 0x0000]
 
 
 def test_register_config_defaults():

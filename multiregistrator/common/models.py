@@ -86,6 +86,30 @@ def decode_registers(
     return raw * scale
 
 
+def encode_registers(
+    value: float,
+    data_type: DataType | str,
+    scale: float = 1.0,
+    word_order: str = "big",
+) -> list[int]:
+    """Encode a Python value into raw 16-bit words (inverse of decode)."""
+
+    data_type = DataType(data_type)
+    factor = float(scale) if scale else 1.0
+    raw = float(value) / factor
+
+    if data_type is DataType.FLOAT32:
+        combined = struct.unpack(">I", struct.pack(">f", raw))[0]
+    elif data_type in (DataType.UINT16, DataType.INT16):
+        return [int(round(raw)) & 0xFFFF]
+    else:  # INT32 / UINT32
+        combined = int(round(raw)) & 0xFFFFFFFF
+
+    high = (combined >> 16) & 0xFFFF
+    low = combined & 0xFFFF
+    return [low, high] if word_order == "little" else [high, low]
+
+
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
 
 

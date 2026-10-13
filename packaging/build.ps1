@@ -31,4 +31,9 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed `
     --collect-submodules requests `
     run_client.py
 
+Write-Host "Building MultiRegistratorTestDevice.exe ..."
+python -m PyInstaller --noconfirm --clean --onefile --console `
+    --name MultiRegistratorTestDevice `
+    test_device.py
+
 Write-Host "Done. Executables are in the 'dist' folder."
