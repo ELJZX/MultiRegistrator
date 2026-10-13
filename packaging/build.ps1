@@ -36,4 +36,9 @@ python -m PyInstaller --noconfirm --clean --onefile --console `
     --name MultiRegistratorTestDevice `
     test_device.py
 
-Write-Host "Done. Executables are in the 'dist' folder."
+Write-Host "Copying executables to the project root ..."
+Copy-Item "dist\MultiRegistratorServer.exe" -Destination $root -Force
+Copy-Item "dist\MultiRegistratorClient.exe" -Destination $root -Force
+Copy-Item "dist\MultiRegistratorTestDevice.exe" -Destination $root -Force
+
+Write-Host "Done. Executables are in 'dist' and in the project root."

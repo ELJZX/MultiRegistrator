@@ -17,6 +17,7 @@ htmlcov/
 
 /archive/
 /config/*.json
+/*.exe
 *.log
 
 .idea/

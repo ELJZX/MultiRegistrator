@@ -72,7 +72,7 @@ class ClientMainWindow(QMainWindow):
 
     def _build_menu(self) -> None:
         self.connect_action = QAction("Подключиться к серверу", self)
-        self.connect_action.triggered.connect(self._connect)
+        self.connect_action.triggered.connect(lambda: self._connect(True))
         self.disconnect_action = QAction("Отключиться от сервера", self)
         self.disconnect_action.triggered.connect(self._disconnect)
         self.disconnect_action.setEnabled(False)
@@ -106,25 +106,40 @@ class ClientMainWindow(QMainWindow):
             ]
             save_client_config(self.config)
 
-    def _connect(self) -> None:
+    def autoconnect(self) -> None:
+        """Connect using the saved settings without showing a dialog."""
+
+        self._connect(interactive=False)
+
+    def _connect(self, interactive: bool = True) -> None:
         if self.api is not None:
             return
-        dialog = ConnectionDialog(self.config, parent=self)
-        if not dialog.exec():
-            return
-        settings = dialog.settings()
-        self.config.settings = settings
-        self.config.connections = [
-            dialog.combo.itemData(i) for i in range(dialog.combo.count())
-        ]
-        save_client_config(self.config)
+        if interactive:
+            dialog = ConnectionDialog(self.config, parent=self)
+            if not dialog.exec():
+                return
+            settings = dialog.settings()
+            self.config.settings = settings
+            self.config.connections = [
+                dialog.combo.itemData(i) for i in range(dialog.combo.count())
+            ]
+            save_client_config(self.config)
+        else:
+            settings = self.config.settings
 
         api = ServerApiClient(settings.server_host, settings.server_port)
         try:
             api.health()
         except ServerApiError as exc:
             api.close()
-            QMessageBox.critical(self, "Ошибка подключения", str(exc))
+            message = (
+                f"{exc}\n\nПроверьте, что на сервере нажата кнопка «Запустить сервер», "
+                f"адрес и порт совпадают, и порт {settings.server_port} не блокируется брандмауэром."
+            )
+            if interactive:
+                QMessageBox.critical(self, "Ошибка подключения", message)
+            else:
+                self.statusBar().showMessage(f"Не удалось подключиться к {settings.server_host}:{settings.server_port}")
             return
         self.api = api
         self.connect_action.setEnabled(False)

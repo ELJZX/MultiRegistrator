@@ -5,6 +5,10 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
 
+if exist "MultiRegistratorTestDevice.exe" (
+    "MultiRegistratorTestDevice.exe" %*
+    goto :end
+)
 if exist "dist\MultiRegistratorTestDevice.exe" (
     "dist\MultiRegistratorTestDevice.exe" %*
     goto :end

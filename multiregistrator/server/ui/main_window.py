@@ -277,6 +277,11 @@ class ServerMainWindow(QMainWindow):
         )
         self._log(f"Сервер запущен. Архив: {archive_dir}")
 
+    def autostart(self) -> None:
+        """Start polling + API immediately (used by the ``--autostart`` flag)."""
+
+        self._start_server()
+
     def _stop_server(self) -> None:
         if self.api is not None:
             self.api.stop()
