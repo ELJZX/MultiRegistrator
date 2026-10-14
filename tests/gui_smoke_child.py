@@ -68,9 +68,11 @@ def _server_window():
 def _device_dialog():
     dialog = DeviceDialog(server_config().devices[0])
     dialog.name_edit.setText("Renamed")
+    dialog.table.item(0, 0).setText("Температура")
     rebuilt = dialog._build_device()
     assert rebuilt.name == "Renamed"
-    assert rebuilt.registers[0].name == "analogIn"
+    assert rebuilt.registers[0].name == "Температура"
+    assert rebuilt.channel_names == ["Температура"]
 
     empty = DeviceDialog()
     empty.name_edit.setText("")
@@ -120,6 +122,11 @@ def _graph_window():
     assert pg.getConfigOption("background") == "w"
     assert view.plot.backgroundBrush().color().name() == "#ffffff"
     assert view.autoscale_button.text() == "Автомасштаб"
+    assert view.autoscale_button.isCheckable() is True
+    view.autoscale_button.setChecked(True)
+    assert all(view.plot.getViewBox().autoRangeEnabled())
+    view.autoscale_button.setChecked(False)
+    assert not any(view.plot.getViewBox().autoRangeEnabled())
     lines = view._report_lines()
     assert lines[0].startswith("MultiRegistrator")
     assert any(line.startswith("Период:") for line in lines)

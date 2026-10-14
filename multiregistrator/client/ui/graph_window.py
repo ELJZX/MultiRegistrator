@@ -12,9 +12,17 @@ pg.setConfigOption("background", "w")
 pg.setConfigOption("foreground", "k")
 
 from PySide6.QtCore import QDateTime, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QPainter, QPdfWriter, QPageSize, QPixmap
+from PySide6.QtGui import (
+    QFont,
+    QPageLayout,
+    QPageSize,
+    QPainter,
+    QPdfWriter,
+    QPixmap,
+)
 from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
 from PySide6.QtWidgets import (
+    QApplication,
     QDateTimeEdit,
     QFileDialog,
     QGroupBox,
@@ -106,12 +114,16 @@ class GraphView(QWidget):
 
         self.live_button = QPushButton("Режим реального времени")
         self.live_button.setCheckable(True)
-        self.live_button.setToolTip("Зелёный — обновляется в реальном времени, серый — статичный график")
+        self.live_button.setToolTip(
+            "Зелёный — обновляется в реальном времени, серый — статичный график"
+        )
         self.live_button.toggled.connect(self._on_live_toggled)
         panel_layout.addWidget(self.live_button)
 
         self.autoscale_button = QPushButton("Автомасштаб")
-        self.autoscale_button.clicked.connect(self._autoscale)
+        self.autoscale_button.setCheckable(True)
+        self.autoscale_button.setToolTip("Автоматически масштабировать график")
+        self.autoscale_button.toggled.connect(self._on_autoscale_toggled)
         panel_layout.addWidget(self.autoscale_button)
 
         self.pdf_button = QPushButton("Сохранить график в PDF")
@@ -123,17 +135,6 @@ class GraphView(QWidget):
         panel_layout.addWidget(self.print_button)
 
         panel_layout.addStretch(1)
-
-        self.channels_box = QGroupBox("Каналы")
-        channels_layout = QVBoxLayout(self.channels_box)
-        self.channels_label = QLabel("Каналы: (все)")
-        self.channels_label.setWordWrap(True)
-        self.channels_hint = QLabel("Здесь отображается информация о выбранных каналах.")
-        self.channels_hint.setWordWrap(True)
-        self.channels_hint.setEnabled(False)
-        channels_layout.addWidget(self.channels_label)
-        channels_layout.addWidget(self.channels_hint)
-        panel_layout.addWidget(self.channels_box)
 
         self.plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem(orientation="bottom")})
         self.plot.setBackground("w")
@@ -172,7 +173,7 @@ class GraphView(QWidget):
         if api is not None:
             self._load_channels()
         else:
-            self._update_channels_label()
+            self._update_channels_tooltip()
 
     # -- channels -----------------------------------------------------------
     def _load_channels(self) -> None:
@@ -182,16 +183,11 @@ class GraphView(QWidget):
             channels = []
         self.available_channels = channels
         self.selected_channels = list(channels)
-        self._update_channels_label()
+        self._update_channels_tooltip()
 
-    def _update_channels_label(self) -> None:
-        if self.selected_channels and len(self.selected_channels) < len(self.available_channels):
-            text = ", ".join(self.selected_channels)
-        elif self.selected_channels:
-            text = ", ".join(self.selected_channels)
-        else:
-            text = "(все)"
-        self.channels_label.setText(f"Каналы: {text}")
+    def _update_channels_tooltip(self) -> None:
+        text = ", ".join(self.selected_channels) if self.selected_channels else "(все)"
+        self.channel_button.setToolTip(f"Каналы: {text}")
 
     def _choose_channels(self) -> None:
         if not self.available_channels:
@@ -200,11 +196,13 @@ class GraphView(QWidget):
         dialog = ChannelDialog(self.available_channels, self.selected_channels, parent=self)
         if dialog.exec():
             self.selected_channels = dialog.selected_channels()
-            self._update_channels_label()
+            self._update_channels_tooltip()
 
     # -- static plotting ----------------------------------------------------
     def _build_static(self) -> None:
         self._deactivate_live()
+        if self.autoscale_button.isChecked():
+            self.autoscale_button.setChecked(False)
         start = self.start_edit.dateTime().toPython()
         end = self.end_edit.dateTime().toPython()
         if end <= start:
@@ -219,7 +217,7 @@ class GraphView(QWidget):
             return
         self._plot_series(series)
         self._apply_time_window(start, end)
-        self._autoscale()
+        self._autoscale_y()
         self._static_built = True
         self._set_status(
             f"Статичный график: {len(series)} канал(ов) за {start:%d.%m.%Y %H:%M} — {end:%d.%m.%Y %H:%M}"
@@ -254,10 +252,28 @@ class GraphView(QWidget):
         pad_start, pad_end = with_margin(view_start, end, 0.1)
         self.plot.setLimits(xMin=pad_start.timestamp(), xMax=pad_end.timestamp())
 
-    def _autoscale(self) -> None:
-        """Auto-fit the view (same as pyqtgraph's auto-range button)."""
+    def _autoscale_y(self) -> None:
+        values: list[float] = []
+        for curve in self.curves.values():
+            _, data = curve.getData()
+            if data is not None and len(data):
+                values.extend(float(v) for v in data if v is not None)
+        if not values:
+            return
+        low, high = min(values), max(values)
+        if low == high:
+            low, high = low - 1.0, high + 1.0
+        self.plot.setYRange(low, high, padding=0.05)
 
-        self.plot.autoRange()
+    def _on_autoscale_toggled(self, checked: bool) -> None:
+        """Mirror pyqtgraph's auto-range button (the small 'A')."""
+
+        viewbox = self.plot.getPlotItem().getViewBox()
+        if checked:
+            viewbox.enableAutoRange(enable=True)
+            viewbox.updateAutoRange()
+        else:
+            viewbox.enableAutoRange(enable=False)
 
     # -- live mode ----------------------------------------------------------
     def _update_live_style(self) -> None:
@@ -355,36 +371,36 @@ class GraphView(QWidget):
         return build_report_lines(self.device_name, start, end, self.selected_channels)
 
     def _paint_report(self, painter: QPainter, rect: QRectF, pixmap: QPixmap, lines: list[str]) -> None:
+        """Draw a compact header at the top and let the graph fill the sheet."""
+
         painter.fillRect(rect, Qt.white)
         painter.setPen(Qt.black)
-        margin = rect.width() * 0.05
+        margin = rect.width() * 0.015
         x = rect.left() + margin
         y = rect.top() + margin
         width = rect.width() - 2 * margin
-        base = width * 0.022
+        base = rect.height() * 0.018
 
         title_font = QFont()
-        title_font.setPixelSize(int(base * 1.4))
+        title_font.setPixelSize(max(10, int(base * 1.3)))
         title_font.setBold(True)
-        body_font = QFont()
-        body_font.setPixelSize(int(base))
+        info_font = QFont()
+        info_font.setPixelSize(max(8, int(base * 0.95)))
 
         painter.setFont(title_font)
-        painter.drawText(int(x), int(y + base * 1.4), lines[0])
-        y += base * 2.6
+        painter.drawText(int(x), int(y + base * 1.3), lines[0])
 
-        painter.setFont(body_font)
-        for line in lines[1:]:
-            painter.drawText(int(x), int(y), line)
-            y += base * 1.6
+        info = "   |   ".join(lines[1:])
+        painter.setFont(info_font)
+        painter.drawText(int(x), int(y + base * 2.7), info)
 
-        y += base
-        avail_h = rect.bottom() - margin - y
-        if pixmap is not None and not pixmap.isNull() and avail_h > 0:
+        graph_y = y + base * 3.6
+        graph_h = rect.bottom() - margin - graph_y
+        if pixmap is not None and not pixmap.isNull() and graph_h > 0:
             scaled = pixmap.scaled(
-                int(width), int(avail_h), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                int(width), int(graph_h), Qt.KeepAspectRatio, Qt.SmoothTransformation
             )
-            painter.drawPixmap(int(x), int(y), scaled)
+            painter.drawPixmap(int(x), int(graph_y), scaled)
 
     def _save_pdf(self) -> None:
         default_name = f"{self.device_name or 'graph'}_{datetime.now():%Y%m%d_%H%M%S}.pdf"
@@ -395,6 +411,7 @@ class GraphView(QWidget):
         lines = self._report_lines()
         writer = QPdfWriter(path)
         writer.setPageSize(QPageSize(QPageSize.A4))
+        writer.setPageOrientation(QPageLayout.Landscape)
         writer.setResolution(300)
         painter = QPainter(writer)
         try:
@@ -406,8 +423,11 @@ class GraphView(QWidget):
 
     def _print_preview(self) -> None:
         printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPageSize(QPageSize.A4))
+        printer.setPageOrientation(QPageLayout.Landscape)
         dialog = QPrintPreviewDialog(printer, self)
-        dialog.paintRequested.connect(lambda p: self._print_report(p))
+        dialog.paintRequested.connect(self._print_report)
+        dialog.setWindowState(Qt.WindowMaximized)
         dialog.exec()
 
     def _print_report(self, printer: QPrinter) -> None:

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -25,7 +26,13 @@ from PySide6.QtWidgets import (
 
 from ...common.models import DataType, DeviceConfig, RegisterConfig, RegisterFunction
 
-COLUMNS = ["Название", "Адрес", "Функция", "Тип", "Масштаб", "Ед.", "Порядок", "Запись"]
+COLUMNS = ["Название канала", "Адрес", "Функция", "Тип", "Масштаб", "Ед.", "Порядок", "Запись"]
+
+CHANNEL_HINT = (
+    "По Modbus читаются только значения из ячеек памяти устройства — что именно "
+    "подключено к ячейке, нужно определить на месте (сравнивая показания) и вписать "
+    "понятное имя канала вручную. Это имя увидят все клиенты."
+)
 
 
 class DeviceDialog(QDialog):
@@ -85,8 +92,13 @@ class DeviceDialog(QDialog):
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
 
+        hint = QLabel(CHANNEL_HINT)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#555;")
+
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(hint)
         layout.addWidget(self.table)
         layout.addLayout(row_buttons)
         layout.addWidget(buttons)
