@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication
 from multiregistrator.client.api_client import ServerApiClient
 from multiregistrator.client.ui.channel_dialog import ChannelDialog
 from multiregistrator.client.ui.connection_dialog import ConnectionDialog
-from multiregistrator.client.ui.graph_window import GraphWindow
+from multiregistrator.client.ui.graph_window import GraphView
 from multiregistrator.client.ui.main_window import ClientMainWindow
 from multiregistrator.common.config import ClientConfig, ClientSettings, ServerConfig
 from multiregistrator.common.models import DeviceConfig, RegisterConfig
@@ -110,14 +110,50 @@ def _channel_dialog():
     assert set(dialog.selected_channels()) == {"a", "b"}
 
 
-@check("graph window")
+@check("graph view")
 def _graph_window():
     import pyqtgraph as pg
 
-    window = GraphWindow(ServerApiClient("127.0.0.1", 1), "d1", "Test")
-    assert window.curves == {}
+    view = GraphView()
+    view.set_device(None, "d1", "Test")
+    assert view.curves == {}
     assert pg.getConfigOption("background") == "w"
-    assert window.plot.backgroundBrush().color().name() == "#ffffff"
+    assert view.plot.backgroundBrush().color().name() == "#ffffff"
+    assert view.autoscale_button.text() == "Автомасштаб"
+    lines = view._report_lines()
+    assert lines[0].startswith("MultiRegistrator")
+    assert any(line.startswith("Период:") for line in lines)
+    assert any(line.startswith("Дата формирования:") for line in lines)
+    view.stop()
+
+
+@check("live mode button")
+def _live_mode_button():
+    view = GraphView()
+    view.set_device(None, "d1", "Test")
+    assert view.live_button.text() == "Режим реального времени"
+    assert view.live_button.isChecked() is False
+    assert "#c8c8c8" in view.live_button.styleSheet()
+    view.live_button.setChecked(True)
+    assert view.live_button.isChecked() is True
+    assert "#2e8b57" in view.live_button.styleSheet()
+    view.live_button.setChecked(False)
+    assert "#c8c8c8" in view.live_button.styleSheet()
+    view.stop()
+
+
+@check("client single-window navigation")
+def _client_navigation():
+    config = ClientConfig(settings=ClientSettings(connection_name="Сервер"))
+    window = ClientMainWindow(config)
+    assert window.back_action.isEnabled() is False
+    assert window.stack.currentIndex() == 0
+    window._show_graph({"id": "d1", "name": "Test"})
+    assert window.stack.currentWidget() is window.graph_view
+    assert window.back_action.isEnabled() is True
+    window._show_list()
+    assert window.stack.currentIndex() == 0
+    assert window.back_action.isEnabled() is False
     window.close()
 
 

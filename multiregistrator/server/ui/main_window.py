@@ -132,23 +132,17 @@ class ServerMainWindow(QMainWindow):
         exit_action = QAction("Выход", self)
         exit_action.triggered.connect(self.close)
 
-        toolbar = self.addToolBar("Основные")
+        # A single row of buttons (no duplicated menu entries).
+        toolbar = self.addToolBar("Панель")
+        toolbar.setMovable(False)
         toolbar.addAction(self.start_action)
         toolbar.addAction(self.stop_action)
         toolbar.addSeparator()
         toolbar.addAction(add_action)
+        toolbar.addAction(edit_action)
+        toolbar.addAction(remove_action)
+        toolbar.addSeparator()
         toolbar.addAction(settings_action)
-
-        server_menu = self.menuBar().addMenu("Сервер")
-        server_menu.addAction(self.start_action)
-        server_menu.addAction(self.stop_action)
-        server_menu.addSeparator()
-        server_menu.addAction(add_action)
-        server_menu.addAction(edit_action)
-        server_menu.addAction(remove_action)
-
-        settings_menu = self.menuBar().addMenu("Настройка")
-        settings_menu.addAction(settings_action)
 
         file_menu = self.menuBar().addMenu("Файл")
         file_menu.addAction(exit_action)

@@ -1,4 +1,4 @@
-"""Main window of the client application."""
+"""Main window of the client application (single window, stacked pages)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSplitter,
+    QStackedWidget,
     QStatusBar,
     QTreeWidget,
     QTreeWidgetItem,
@@ -23,32 +24,42 @@ from ... import __version__
 from ...common.config import ClientConfig, load_client_config, save_client_config
 from ..api_client import ServerApiClient, ServerApiError
 from .connection_dialog import ConnectionDialog
-from .graph_window import GraphWindow
+from .graph_window import GraphView
 
 ONLINE_COLOR = QColor(0, 150, 0)
 OFFLINE_COLOR = QColor(200, 0, 0)
-UNKNOWN_COLOR = QColor(120, 120, 120)
 
 
 class ClientMainWindow(QMainWindow):
     def __init__(self, config: Optional[ClientConfig] = None) -> None:
         super().__init__()
         self.setWindowTitle(f"MultiRegistrator — Клиент {__version__}")
-        self.resize(1000, 640)
+        self.resize(1040, 620)
         self.config = config or load_client_config()
         self.api: Optional[ServerApiClient] = None
         self.devices: list[dict] = []
-        self.graph_windows: dict[str, GraphWindow] = {}
 
         self.refresh_timer = QTimer(self)
         self.refresh_timer.setInterval(2000)
         self.refresh_timer.timeout.connect(self._refresh_devices)
 
         self._build_ui()
-        self._build_menu()
+        self._build_toolbar()
 
     # -- UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self._build_list_page())
+
+        self.graph_view = GraphView(refresh_ms=self.config.settings.live_refresh_ms)
+        self.graph_view.back_requested.connect(self._show_list)
+        self.stack.addWidget(self.graph_view)
+
+        self.setCentralWidget(self.stack)
+        self.setStatusBar(QStatusBar())
+        self.statusBar().showMessage("Не подключено")
+
+    def _build_list_page(self) -> QWidget:
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Сеть"])
         self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -65,36 +76,45 @@ class ClientMainWindow(QMainWindow):
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.tree)
         splitter.addWidget(self.info)
-        splitter.setSizes([280, 720])
-        self.setCentralWidget(splitter)
-        self.setStatusBar(QStatusBar())
-        self.statusBar().showMessage("Не подключено")
+        splitter.setSizes([280, 760])
+        return splitter
 
-    def _build_menu(self) -> None:
+    def _build_toolbar(self) -> None:
         self.connect_action = QAction("Подключиться к серверу", self)
         self.connect_action.triggered.connect(self._connect)
         self.disconnect_action = QAction("Отключиться от сервера", self)
         self.disconnect_action.triggered.connect(self._disconnect)
         self.disconnect_action.setEnabled(False)
-        settings_action = QAction("Настройка соединения", self)
-        settings_action.triggered.connect(self._open_settings)
+        self.settings_action = QAction("Настройка соединения", self)
+        self.settings_action.triggered.connect(self._open_settings)
+        self.back_action = QAction("← Назад", self)
+        self.back_action.triggered.connect(self._show_list)
+        self.back_action.setEnabled(False)
         exit_action = QAction("Выход", self)
         exit_action.triggered.connect(self.close)
 
-        toolbar = self.addToolBar("Основные")
+        # A single row of buttons (no duplicated menu entries).
+        toolbar = self.addToolBar("Панель")
+        toolbar.setMovable(False)
         toolbar.addAction(self.connect_action)
         toolbar.addAction(self.disconnect_action)
-        toolbar.addAction(settings_action)
-
-        network_menu = self.menuBar().addMenu("Сеть")
-        network_menu.addAction(self.connect_action)
-        network_menu.addAction(self.disconnect_action)
-
-        settings_menu = self.menuBar().addMenu("Настройка")
-        settings_menu.addAction(settings_action)
+        toolbar.addAction(self.settings_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.back_action)
 
         file_menu = self.menuBar().addMenu("Файл")
         file_menu.addAction(exit_action)
+
+    # -- pages --------------------------------------------------------------
+    def _show_graph(self, config: dict) -> None:
+        self.graph_view.set_device(self.api, config["id"], config["name"])
+        self.stack.setCurrentWidget(self.graph_view)
+        self.back_action.setEnabled(True)
+
+    def _show_list(self) -> None:
+        self.graph_view.stop()
+        self.stack.setCurrentIndex(0)
+        self.back_action.setEnabled(False)
 
     # -- connection ---------------------------------------------------------
     def _open_settings(self) -> None:
@@ -112,11 +132,7 @@ class ClientMainWindow(QMainWindow):
         self._connect()
 
     def _connect(self) -> None:
-        """Connect to the server from the saved settings (no dialog).
-
-        The server address is preconfigured and can be changed in
-        «Настройка → Настройка соединения».
-        """
+        """Connect to the server from the saved settings (no dialog)."""
 
         if self.api is not None:
             return
@@ -132,7 +148,7 @@ class ClientMainWindow(QMainWindow):
                 "Ошибка подключения",
                 f"{exc}\n\nПроверьте, что сервер запущен и адрес/порт "
                 f"({settings.server_host}:{settings.server_port}) заданы верно. "
-                f"Изменить можно в меню «Настройка → Настройка соединения».",
+                f"Изменить можно в меню «Настройка соединения».",
             )
             return
         self.api = api
@@ -146,9 +162,8 @@ class ClientMainWindow(QMainWindow):
 
     def _disconnect(self) -> None:
         self.refresh_timer.stop()
-        for window in list(self.graph_windows.values()):
-            window.close()
-        self.graph_windows.clear()
+        self._show_list()
+        self.graph_view.set_device(None, "", "")
         if self.api is not None:
             self.api.close()
             self.api = None
@@ -215,23 +230,7 @@ class ClientMainWindow(QMainWindow):
         config = item.data(0, Qt.UserRole)
         if config is None or self.api is None:
             return
-        self._open_graph(config)
-
-    def _open_graph(self, config: dict) -> None:
-        device_id = config["id"]
-        window = self.graph_windows.get(device_id)
-        if window is None:
-            window = GraphWindow(
-                self.api,
-                device_id,
-                config["name"],
-                refresh_ms=self.config.settings.live_refresh_ms,
-                parent=None,
-            )
-            self.graph_windows[device_id] = window
-        window.show()
-        window.raise_()
-        window.activateWindow()
+        self._show_graph(config)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._disconnect()
