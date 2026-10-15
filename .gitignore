@@ -16,6 +16,7 @@ env/
 htmlcov/
 
 /archive/
+/logs/
 /config/*.json
 /*.exe
 /*.spec

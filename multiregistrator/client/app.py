@@ -10,6 +10,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from ..common.config import load_client_config, save_client_config
+from ..common.logging_setup import get_logger, setup_logging
 from ..common.theme import apply_light_theme
 from .ui.main_window import ClientMainWindow
 
@@ -28,6 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--autoconnect", action="store_true", help="подключиться к серверу сразу")
     parser.add_argument("--server", help="адрес сервера, например 127.0.0.1:8120")
     args, qt_args = parser.parse_known_args(argv[1:])
+
+    log_path = setup_logging("client")
+    get_logger("app").info("Запуск клиента MultiRegistrator. Лог-файл: %s", log_path)
 
     _enable_high_dpi_scaling()
     app = QApplication([argv[0], *qt_args])

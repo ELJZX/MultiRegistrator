@@ -9,6 +9,7 @@ import time
 
 from ..common.archive import ArchiveReader, ArchiveWriter
 from ..common.config import load_server_config, save_server_config
+from ..common.logging_setup import get_logger, setup_logging
 from ..common.models import DeviceStatus
 from .api import ApiServer, create_app, resolve_bind_host
 from .modbus import ModbusReader
@@ -104,6 +105,8 @@ def _run_headless(config) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     _ensure_console_streams()
+    log_path = setup_logging("server", console=True)
+    get_logger("app").info("Запуск сервера MultiRegistrator. Лог-файл: %s", log_path)
     argv = list(sys.argv if argv is None else argv)
     parser = argparse.ArgumentParser(description="MultiRegistrator server")
     parser.add_argument("--autostart", action="store_true", help="запустить сервер сразу")

@@ -164,3 +164,28 @@ def test_poll_populates_archive_reader(tmp_path):
         "127.0.0.1", datetime(2026, 10, 13, 0, 0), datetime(2026, 10, 13, 23, 59)
     )
     assert series["a"].values == [7.0]
+
+
+def test_notify_logs_callback_errors(tmp_path):
+    import logging
+
+    from multiregistrator.common.logging_setup import setup_logging
+
+    log_file = setup_logging("service-notify-test", base_dir=tmp_path)
+
+    def boom(status):
+        raise RuntimeError("callback boom")
+
+    service = ServerService(
+        FakeReader({"a": 1.0}),
+        ArchiveWriter(tmp_path / "archive"),
+        [make_device()],
+        on_status=boom,
+    )
+    service.poll_once()
+    for handler in logging.getLogger("multiregistrator").handlers:
+        handler.flush()
+
+    text = log_file.read_text(encoding="utf-8")
+    assert "callback boom" in text
+    assert "service" in text

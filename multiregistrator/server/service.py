@@ -17,7 +17,10 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from ..common.archive import ArchiveWriter
+from ..common.logging_setup import get_logger
 from ..common.models import DeviceConfig, DeviceStatus
+
+logger = get_logger("service")
 
 
 class ServerService:
@@ -61,7 +64,7 @@ class ServerService:
                 try:
                     self._reader.close(removed)
                 except Exception:  # pragma: no cover - defensive
-                    pass
+                    logger.exception("ошибка закрытия соединения устройства %s", removed)
             for device in devices:
                 self._devices[device.id] = device
                 self._status.setdefault(device.id, DeviceStatus(device_id=device.id))
@@ -111,7 +114,7 @@ class ServerService:
         try:
             self._reader.close()
         except Exception:  # pragma: no cover - defensive
-            pass
+            logger.exception("ошибка закрытия Modbus-соединений при остановке")
 
     def poll_once(self) -> dict[str, DeviceStatus]:
         """Poll every device immediately (used by tests / manual refresh)."""
@@ -169,6 +172,7 @@ class ServerService:
         try:
             self._archive.append_sample(device, moment, values)
         except Exception as exc:  # pragma: no cover - disk problems
+            logger.exception("ошибка записи в архив для устройства %s", device.id)
             with self._lock:
                 status.last_error = f"archive: {exc}"
         self._notify(status)
@@ -193,5 +197,7 @@ class ServerService:
         if self._on_status is not None:
             try:
                 self._on_status(status)
-            except Exception:  # pragma: no cover - GUI callback must not crash us
-                pass
+            except Exception:  # pragma: no cover - callback must not crash us
+                logger.exception(
+                    "сбой обратного вызова статуса устройства %s", status.device_id
+                )
