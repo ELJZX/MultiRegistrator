@@ -145,13 +145,15 @@ class ServerService:
             status.last_attempt = self._now()
         start = time.perf_counter()
         try:
-            values = self._reader.read(device)
+            values, available = self._read_values(device)
         except Exception as exc:
             latency = (time.perf_counter() - start) * 1000.0
             with self._lock:
                 status.online = False
                 status.last_error = str(exc)
                 status.latency_ms = latency
+                # Keep the last known channel availability: a device that is
+                # simply unreachable is not the same as a removed sensor.
             self._notify(status)
             return status
 
@@ -163,6 +165,7 @@ class ServerService:
             status.last_error = ""
             status.latency_ms = latency
             status.values = dict(values)
+            status.channel_available = dict(available)
         try:
             self._archive.append_sample(device, moment, values)
         except Exception as exc:  # pragma: no cover - disk problems
@@ -170,6 +173,21 @@ class ServerService:
                 status.last_error = f"archive: {exc}"
         self._notify(status)
         return status
+
+    def _read_values(self, device: DeviceConfig):
+        """Return ``(values, available)`` for one device poll.
+
+        Prefers the reader's :meth:`read_full` (which reports per-channel
+        availability) but still works with a plain ``read`` (unit-test doubles).
+        """
+
+        read_full = getattr(self._reader, "read_full", None)
+        if callable(read_full):
+            result = read_full(device)
+            return dict(result.values), dict(result.available)
+        values = dict(self._reader.read(device))
+        available = {name: True for name in device.channel_names}
+        return values, available
 
     def _notify(self, status: DeviceStatus) -> None:
         if self._on_status is not None:

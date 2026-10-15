@@ -119,6 +119,40 @@ def test_start_is_idempotent(tmp_path):
         service.stop()
 
 
+class _Result:
+    def __init__(self, values, available):
+        self.values = values
+        self.available = available
+
+
+class FakeReaderFull:
+    def __init__(self, result):
+        self._result = result
+
+    def read_full(self, device):
+        return self._result
+
+    def close(self, device_id=None):
+        pass
+
+
+def test_channel_availability_is_recorded(tmp_path):
+    reader = FakeReaderFull(_Result({"a": 1.0, "b": None}, {"a": True, "b": False}))
+    device = DeviceConfig(
+        id="d1",
+        name="d1",
+        host="127.0.0.1",
+        registers=[
+            RegisterConfig(name="a", address=1),
+            RegisterConfig(name="b", address=2),
+        ],
+    )
+    service = ServerService(reader, ArchiveWriter(tmp_path / "archive"), [device])
+    status = service.poll_once()["d1"]
+    assert status.online is True
+    assert status.channel_available == {"a": True, "b": False}
+
+
 def test_poll_populates_archive_reader(tmp_path):
     archive_dir = tmp_path / "archive"
     service = ServerService(

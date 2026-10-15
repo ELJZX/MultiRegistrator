@@ -90,8 +90,8 @@ class ServerMainWindow(QMainWindow):
         header.setMinimumSectionSize(90)
         self.table.setTextElideMode(Qt.ElideNone)
 
-        self.values_table = QTableWidget(0, 2)
-        self.values_table.setHorizontalHeaderLabels(["Канал", "Значение"])
+        self.values_table = QTableWidget(0, 3)
+        self.values_table.setHorizontalHeaderLabels(["Канал", "Значение", "Состояние"])
         self.values_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         values_header = self.values_table.horizontalHeader()
         values_header.setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -129,8 +129,6 @@ class ServerMainWindow(QMainWindow):
         remove_action.triggered.connect(self._remove_device)
         settings_action = QAction("Настройки сервера", self)
         settings_action.triggered.connect(self._open_settings)
-        exit_action = QAction("Выход", self)
-        exit_action.triggered.connect(self.close)
 
         # A single row of buttons (no duplicated menu entries).
         toolbar = self.addToolBar("Панель")
@@ -144,8 +142,8 @@ class ServerMainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(settings_action)
 
-        file_menu = self.menuBar().addMenu("Файл")
-        file_menu.addAction(exit_action)
+        # No menu bar: the app is closed/minimised with the window buttons.
+        self.menuBar().setVisible(False)
 
     # -- device list --------------------------------------------------------
     def _refresh_devices(self) -> None:
@@ -236,14 +234,35 @@ class ServerMainWindow(QMainWindow):
 
     def _update_values(self) -> None:
         device_id = self._selected_device_id()
+        device = self._device_by_id(device_id) if device_id else None
         status = self._statuses.get(device_id) if device_id else None
+        channels = device.channel_names if device is not None else []
         values = status.values if status else {}
-        self.values_table.setRowCount(len(values))
-        for row, (channel, value) in enumerate(values.items()):
-            self.values_table.setItem(row, 0, QTableWidgetItem(channel))
+        availability = status.channel_available if status else {}
+
+        self.values_table.setRowCount(len(channels))
+        for row, channel in enumerate(channels):
+            value = values.get(channel)
+            known = availability.get(channel)
+            if known is False:
+                state = "нет данных"
+                color = OFFLINE_COLOR
+            elif value is None:
+                state = "—"
+                color = UNKNOWN_COLOR
+            else:
+                state = "ок"
+                color = ONLINE_COLOR
+            name_item = QTableWidgetItem(channel)
+            self.values_table.setItem(row, 0, name_item)
             self.values_table.setItem(
                 row, 1, QTableWidgetItem("" if value is None else f"{value:.6g}")
             )
+            state_item = QTableWidgetItem(state)
+            state_item.setForeground(color)
+            self.values_table.setItem(row, 2, state_item)
+            if known is False:
+                name_item.setForeground(OFFLINE_COLOR)
 
     # -- server lifecycle ---------------------------------------------------
     def _start_server(self) -> None:

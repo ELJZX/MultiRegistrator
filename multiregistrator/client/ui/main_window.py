@@ -90,8 +90,6 @@ class ClientMainWindow(QMainWindow):
         self.back_action = QAction("← Назад", self)
         self.back_action.triggered.connect(self._show_list)
         self.back_action.setEnabled(False)
-        exit_action = QAction("Выход", self)
-        exit_action.triggered.connect(self.close)
 
         # A single row of buttons (no duplicated menu entries).
         toolbar = self.addToolBar("Панель")
@@ -102,8 +100,8 @@ class ClientMainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self.back_action)
 
-        file_menu = self.menuBar().addMenu("Файл")
-        file_menu.addAction(exit_action)
+        # No menu bar: the app is closed/minimised with the window buttons.
+        self.menuBar().setVisible(False)
 
     # -- pages --------------------------------------------------------------
     def _show_graph(self, config: dict) -> None:
@@ -224,7 +222,12 @@ class ClientMainWindow(QMainWindow):
         self.info_form.addRow("Задержка, мс", QLabel(f"{status.get('latency_ms', 0):.1f}"))
         self.info_form.addRow("Последний успех", QLabel(str(status.get("last_success") or "—")))
         channels = [r["name"] for r in config.get("registers", [])]
-        self.info_form.addRow("Каналы", QLabel(", ".join(channels) if channels else "—"))
+        availability = status.get("channel_available", {})
+        available = [c for c in channels if availability.get(c, True)]
+        unavailable = [c for c in channels if c not in available]
+        self.info_form.addRow("Каналы", QLabel(", ".join(available) if available else "—"))
+        if unavailable:
+            self.info_form.addRow("Недоступны", QLabel(", ".join(unavailable)))
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         config = item.data(0, Qt.UserRole)

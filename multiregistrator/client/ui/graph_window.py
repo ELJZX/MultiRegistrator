@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from datetime import datetime
 from typing import Optional
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDateTimeEdit,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -47,8 +49,62 @@ LIVE_COLORS = [
     "#46f0f0", "#f032e6", "#bcf60c", "#008080", "#9a6324",
 ]
 
+# Real-time mode: how much time is visible at once and how much free space is
+# left after the newest point (so the end of the graph is always visible).
+LIVE_WINDOW_SECONDS = 120.0
+LIVE_RIGHT_MARGIN = 0.2
+GRID_ALPHA = 0.3
+
 LIVE_ON_STYLE = "background-color:#2e8b57; color:white; font-weight:bold;"
 LIVE_OFF_STYLE = "background-color:#c8c8c8; color:#303030;"
+
+
+class TimeAxisItem(pg.DateAxisItem):
+    """Time axis whose smallest step is 5 seconds.
+
+    The default pyqtgraph date axis zooms down to sub-second labels; here ticks
+    never get finer than 5 seconds, which keeps the X axis readable in live mode.
+    """
+
+    MIN_TICK_PX = 50.0
+    STEPS = [
+        5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1800, 3600,
+        7200, 10800, 21600, 43200, 86400, 172800, 604800,
+        2592000, 7776000, 15552000, 31536000,
+    ]
+
+    def tickValues(self, minVal, maxVal, size):
+        if maxVal <= minVal or size <= 0:
+            return []
+        density = (maxVal - minVal) / size  # seconds per pixel
+        step = self.STEPS[-1]
+        for candidate in self.STEPS:
+            if candidate / density >= self.MIN_TICK_PX:
+                step = candidate
+                break
+        first = math.floor(minVal / step) * step
+        ticks = []
+        x = first
+        while x <= maxVal:
+            if x >= minVal:
+                ticks.append(x)
+            x += step
+        return [(step, ticks)]
+
+    def tickStrings(self, values, scale, spacing):
+        if spacing < 60:
+            fmt = "%H:%M:%S"
+        elif spacing < 86400:
+            fmt = "%H:%M"
+        else:
+            fmt = "%d.%m.%Y"
+        result = []
+        for value in values:
+            try:
+                result.append(datetime.fromtimestamp(float(value)).strftime(fmt))
+            except (OverflowError, OSError, ValueError):
+                result.append("")
+        return result
 
 
 class GraphView(QWidget):
@@ -79,10 +135,6 @@ class GraphView(QWidget):
         panel.setFixedWidth(300)
         panel_layout = QVBoxLayout(panel)
 
-        self.back_button = QPushButton("← Назад к списку устройств")
-        self.back_button.clicked.connect(self.back_requested.emit)
-        panel_layout.addWidget(self.back_button)
-
         self.title = QLabel("<b>График</b>")
         self.title.setWordWrap(True)
         panel_layout.addWidget(self.title)
@@ -112,6 +164,12 @@ class GraphView(QWidget):
         self.build_button.clicked.connect(self._build_static)
         panel_layout.addWidget(self.build_button)
 
+        # The display/export controls form a separate group.
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        panel_layout.addWidget(separator)
+
         self.live_button = QPushButton("Режим реального времени")
         self.live_button.setCheckable(True)
         self.live_button.setToolTip(
@@ -126,6 +184,14 @@ class GraphView(QWidget):
         self.autoscale_button.toggled.connect(self._on_autoscale_toggled)
         panel_layout.addWidget(self.autoscale_button)
 
+        self.grid_button = QPushButton("Убрать сетку")
+        self.grid_button.setCheckable(True)
+        self.grid_button.setToolTip(
+            "Скрыть координатную сетку — останутся только оси и график"
+        )
+        self.grid_button.toggled.connect(self._on_grid_toggled)
+        panel_layout.addWidget(self.grid_button)
+
         self.pdf_button = QPushButton("Сохранить график в PDF")
         self.pdf_button.clicked.connect(self._save_pdf)
         panel_layout.addWidget(self.pdf_button)
@@ -136,14 +202,14 @@ class GraphView(QWidget):
 
         panel_layout.addStretch(1)
 
-        self.plot = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem(orientation="bottom")})
+        self.plot = pg.PlotWidget(axisItems={"bottom": TimeAxisItem(orientation="bottom")})
         self.plot.setBackground("w")
-        self.plot.showGrid(x=True, y=True, alpha=0.3)
+        self.plot.showGrid(x=True, y=True, alpha=GRID_ALPHA)
         self.plot.setLabel("bottom", "Время")
         self.plot.setLabel("left", "Значение")
-        self.plot.addLegend(offset=(10, 10))
+        self._legend = self.plot.addLegend(offset=(10, 10))
         self.plot.setMouseEnabled(x=True, y=True)
-        self._legend = self.plot.getPlotItem().legend
+        self._style_legend()
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(panel)
@@ -155,6 +221,20 @@ class GraphView(QWidget):
         layout.addWidget(splitter)
 
         self._update_live_style()
+
+    def _style_legend(self) -> None:
+        """Make the channel box a solid, opaque white panel.
+
+        The default pyqtgraph legend is translucent, so the grid shows through
+        it.  A fully opaque brush keeps the channel list readable.
+        """
+
+        if self._legend is None:
+            return
+        self._legend.frame = True
+        self._legend.setBrush(pg.mkBrush(255, 255, 255, 255))
+        self._legend.setPen(pg.mkPen(120, 120, 120))
+        self._legend.setZValue(1_000_000)
 
     # -- device -------------------------------------------------------------
     def set_device(self, api: Optional[ServerApiClient], device_id: str, device_name: str) -> None:
@@ -172,6 +252,12 @@ class GraphView(QWidget):
         self.selected_channels = []
         if api is not None:
             self._load_channels()
+            # A device always opens in real-time mode.
+            self._static_built = False
+            if not self.live_button.isChecked():
+                self.live_button.setChecked(True)  # triggers _start_live
+            else:
+                self._start_live()
         else:
             self._update_channels_tooltip()
 
@@ -228,6 +314,7 @@ class GraphView(QWidget):
         self.curves.clear()
         if self._legend is not None:
             self._legend.clear()
+        self._style_legend()
 
     def _plot_series(self, series: dict[str, TimeSeries]) -> None:
         self._clear_plot()
@@ -274,6 +361,11 @@ class GraphView(QWidget):
             viewbox.updateAutoRange()
         else:
             viewbox.enableAutoRange(enable=False)
+
+    def _on_grid_toggled(self, checked: bool) -> None:
+        """Hide/show the coordinate grid (works in both static and live mode)."""
+
+        self.plot.getPlotItem().showGrid(x=not checked, y=not checked, alpha=GRID_ALPHA)
 
     # -- live mode ----------------------------------------------------------
     def _update_live_style(self) -> None:
@@ -357,12 +449,25 @@ class GraphView(QWidget):
         for channel, curve in self.curves.items():
             times, series_values = self.live_data[channel]
             curve.setData(list(times), list(series_values))
+        self._follow_live(timestamp)
         if payload.get("online"):
             self._set_status(
                 f"Онлайн. Обновлено: {datetime.fromisoformat(str(moment)):%H:%M:%S}"
             )
         else:
             self._set_status("Устройство не в сети")
+
+    def _follow_live(self, latest: float) -> None:
+        """Scroll the live window so the newest point sits at 80% of the width.
+
+        The remaining 20% on the right is free space, so the end of the graph is
+        always visually clear.
+        """
+
+        span = LIVE_WINDOW_SECONDS
+        x_max = latest + span * LIVE_RIGHT_MARGIN
+        x_min = x_max - span
+        self.plot.setXRange(x_min, x_max, padding=0.0)
 
     # -- report (PDF / print) ----------------------------------------------
     def _report_lines(self) -> list[str]:

@@ -5,10 +5,21 @@ from __future__ import annotations
 import argparse
 import sys
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from ..common.config import load_client_config, save_client_config
+from ..common.theme import apply_light_theme
 from .ui.main_window import ClientMainWindow
+
+
+def _enable_high_dpi_scaling() -> None:
+    """Honour the exact Windows display scaling (e.g. 125%, 150%)."""
+
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,9 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--server", help="адрес сервера, например 127.0.0.1:8120")
     args, qt_args = parser.parse_known_args(argv[1:])
 
+    _enable_high_dpi_scaling()
     app = QApplication([argv[0], *qt_args])
     app.setApplicationName("MultiRegistrator Client")
     app.setOrganizationName("MultiRegistrator")
+    apply_light_theme(app)
 
     config = load_client_config()
     if args.server:
@@ -31,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     save_client_config(config)
 
     window = ClientMainWindow(config)
-    window.show()
+    window.showMaximized()
     if args.autoconnect:
         from PySide6.QtCore import QTimer
 

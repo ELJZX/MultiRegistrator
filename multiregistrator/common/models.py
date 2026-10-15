@@ -248,6 +248,7 @@ class DeviceStatus:
     last_error: str = ""
     latency_ms: float = 0.0
     values: dict[str, Optional[float]] = field(default_factory=dict)
+    channel_available: dict[str, bool] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -258,6 +259,7 @@ class DeviceStatus:
             "last_error": self.last_error,
             "latency_ms": self.latency_ms,
             "values": dict(self.values),
+            "channel_available": dict(self.channel_available),
         }
 
 

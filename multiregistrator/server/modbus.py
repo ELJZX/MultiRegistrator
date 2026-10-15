@@ -12,6 +12,7 @@ rest of the application.  Network behaviour is intentionally conservative:
 
 from __future__ import annotations
 
+import math
 import struct
 import time
 from dataclasses import dataclass, field
@@ -29,6 +30,24 @@ MAX_REGISTERS_PER_REQUEST = 125
 
 class ModbusReadError(RuntimeError):
     """Raised when a device could not be read (offline / bad answer)."""
+
+
+@dataclass
+class ReadResult:
+    """Outcome of one device poll.
+
+    ``values`` holds every configured channel (``None`` when the value could not
+    be read).  ``unavailable`` lists the channels that did not return usable data
+    this time -- either because their Modbus block could not be read (e.g. the
+    sensor was disconnected) or because the device answered with NaN.
+    """
+
+    values: dict[str, Optional[float]]
+    unavailable: set[str] = field(default_factory=set)
+
+    @property
+    def available(self) -> dict[str, bool]:
+        return {name: name not in self.unavailable for name in self.values}
 
 
 @dataclass
@@ -135,18 +154,50 @@ class ModbusReader:
 
     # -- reading ------------------------------------------------------------
     def read(self, device: DeviceConfig) -> dict[str, Optional[float]]:
+        """Read every channel; return a plain ``name -> value`` mapping.
+
+        Kept for backward compatibility -- use :meth:`read_full` when the
+        per-channel availability is needed.
+        """
+
+        return self.read_full(device).values
+
+    def read_full(self, device: DeviceConfig) -> ReadResult:
+        """Read every channel, tolerating individual blocks going missing.
+
+        The whole device is only considered offline (an exception is raised)
+        when *no* block could be read at all -- for example when the device is
+        unreachable or answers nothing.  A single unreadable block (a sensor
+        that was removed) simply marks its channels as unavailable while the
+        remaining channels keep working.
+        """
+
         if not device.registers:
             raise ModbusReadError(f"device {device.id} has no registers configured")
 
         blocks = build_read_blocks(device.registers)
         values: dict[str, Optional[float]] = {}
+        unavailable: set[str] = set()
         client = None
+        readable_blocks = 0
+        last_error: Optional[str] = None
         try:
             client = self._get_client(device)
             for index, block in enumerate(blocks):
                 if index and self.inter_request_delay:
                     time.sleep(self.inter_request_delay)
-                raw = self._read_block(client, device, block)
+                for register in block.registers:
+                    values.setdefault(register.name, None)
+                try:
+                    raw = self._read_block(client, device, block)
+                except ModbusReadError as exc:
+                    # A missing sensor / unreadable block: keep the device
+                    # online but flag these channels as unavailable.
+                    last_error = str(exc)
+                    for register in block.registers:
+                        unavailable.add(register.name)
+                    continue
+                readable_blocks += 1
                 for register in block.registers:
                     offset = register.address - block.start
                     if register.is_bit:
@@ -155,23 +206,54 @@ class ModbusReader:
                         width = register.word_count
                         words = raw[offset : offset + width]
                         try:
-                            values[register.name] = decode_registers(
+                            decoded = decode_registers(
                                 words,
                                 register.data_type,
                                 register.scale,
                                 register.word_order,
                             )
                         except (ValueError, struct.error) as exc:
-                            raise ModbusReadError(
-                                f"cannot decode {register.name}: {exc}"
-                            ) from exc
+                            last_error = f"cannot decode {register.name}: {exc}"
+                            unavailable.add(register.name)
+                            values[register.name] = None
+                            continue
+                        if isinstance(decoded, float) and math.isnan(decoded):
+                            # The device reports unused channels as NaN.
+                            unavailable.add(register.name)
+                            values[register.name] = None
+                        else:
+                            values[register.name] = decoded
         except ModbusReadError:
             self.close(device.id)
             raise
-        except Exception as exc:  # network/decoding errors -> offline
+        except Exception as exc:  # network errors -> offline
             self.close(device.id)
             raise ModbusReadError(str(exc)) from exc
-        return values
+
+        if readable_blocks == 0:
+            self.close(device.id)
+            raise ModbusReadError(last_error or f"no data from {device.host}")
+        return ReadResult(values=values, unavailable=unavailable)
+
+    def probe(
+        self,
+        device: DeviceConfig,
+        function: str,
+        start: int,
+        count: int,
+    ) -> Optional[list]:
+        """Read a single raw block without raising (used by discovery).
+
+        Returns the raw register/bits list on success or ``None`` when the
+        device rejects the request (illegal address, no answer, ...).
+        """
+
+        block = ReadBlock(RegisterFunction(function).value, start, count)
+        try:
+            client = self._get_client(device)
+            return self._read_block(client, device, block)
+        except Exception:
+            return None
 
     def _read_block(self, client, device: DeviceConfig, block: ReadBlock) -> list:
         function = RegisterFunction(block.function)

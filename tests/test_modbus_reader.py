@@ -169,6 +169,49 @@ def test_device_without_registers_raises():
         reader.read(make_device([]))
 
 
+def test_missing_block_marks_channel_unavailable():
+    class PartialClient(FakeClient):
+        def read_holding_registers(self, address, count=1, device_id=1):
+            self.calls.append(("holding", address, count))
+            if address == 1:  # the "removed sensor" answers with an error
+                return FakeResponse(error=True)
+            return FakeResponse(
+                registers=[self.holding.get(address + i, 0) for i in range(count)]
+            )
+
+    client = PartialClient("10.0.0.1", 502, 1.0, 0)
+    client.holding = {20: 0x41F0, 21: 0x0000}
+    device = make_device(
+        [
+            RegisterConfig(name="gone", address=1),
+            RegisterConfig(name="ok", address=20, data_type="float32"),
+        ]
+    )
+    result = make_reader(client).read_full(device)
+    assert result.values["ok"] == pytest.approx(30.0)
+    assert result.values["gone"] is None
+    assert result.unavailable == {"gone"}
+    assert result.available == {"gone": False, "ok": True}
+
+
+def test_nan_channel_is_unavailable():
+    client = FakeClient("10.0.0.1", 502, 1.0, 0)
+    client.holding = {1: 0x7FC0, 2: 0x0000}  # NaN (unused channel)
+    device = make_device([RegisterConfig(name="empty", address=1, data_type="float32")])
+    result = make_reader(client).read_full(device)
+    assert result.values["empty"] is None
+    assert result.unavailable == {"empty"}
+
+
+def test_all_blocks_missing_raises_offline():
+    client = FakeClient("10.0.0.1", 502, 1.0, 0)
+    client.error = True
+    reader = make_reader(client)
+    device = make_device([RegisterConfig(name="a", address=1)])
+    with pytest.raises(ModbusReadError):
+        reader.read_full(device)
+
+
 def test_close_clears_clients():
     client = FakeClient("10.0.0.1", 502, 1.0, 0)
     client.holding = {1: 1}

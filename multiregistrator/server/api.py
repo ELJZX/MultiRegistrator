@@ -103,7 +103,16 @@ def create_app(service: ServerService, archive: ArchiveReader) -> FastAPI:
     def channels(device_id: str) -> dict:
         device = _find_device(device_id)
         names = device.channel_names or archive.list_channels(device.host)
-        return {"device_id": device.id, "host": device.host, "channels": names}
+        status = service.get_status(device.id)
+        availability = status.channel_available if status else {}
+        available = [name for name in names if availability.get(name, True)]
+        unavailable = [name for name in names if name not in available]
+        return {
+            "device_id": device.id,
+            "host": device.host,
+            "channels": available,
+            "unavailable": unavailable,
+        }
 
     @app.get("/api/devices/{device_id}/dates")
     def dates(device_id: str) -> dict:
@@ -165,7 +174,9 @@ class ApiServer:
 
         self.host = host
         self.port = port
-        self._config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+        self._config = uvicorn.Config(
+            app, host=host, port=port, log_level="warning", use_colors=False
+        )
         self._server = uvicorn.Server(self._config)
         self._thread: Optional[threading.Thread] = None
 

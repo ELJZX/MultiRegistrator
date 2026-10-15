@@ -86,6 +86,36 @@ def test_latest(client):
 def test_channels(client):
     payload = client.get("/api/devices/d1/channels").json()
     assert payload["channels"] == ["analogIn", "freqIn"]
+    assert payload["unavailable"] == []
+
+
+def test_channels_hide_unavailable(tmp_path):
+    class Result:
+        values = {"analogIn": 30.0, "freqIn": None}
+        available = {"analogIn": True, "freqIn": False}
+
+    class FullReader:
+        def read_full(self, device):
+            return Result()
+
+        def close(self, device_id=None):
+            pass
+
+    device = DeviceConfig(
+        id="d1",
+        name="Tewes-Bis",
+        host="127.0.0.1",
+        registers=[
+            RegisterConfig(name="analogIn", address=1, data_type="float32"),
+            RegisterConfig(name="freqIn", address=3),
+        ],
+    )
+    service = ServerService(FullReader(), ArchiveWriter(tmp_path / "archive"), [device])
+    service.poll_once()
+    app = create_app(service, ArchiveReader(tmp_path / "archive"))
+    payload = TestClient(app).get("/api/devices/d1/channels").json()
+    assert payload["channels"] == ["analogIn"]
+    assert payload["unavailable"] == ["freqIn"]
 
 
 def test_dates(client):

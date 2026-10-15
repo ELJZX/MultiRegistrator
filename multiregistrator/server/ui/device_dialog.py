@@ -6,6 +6,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -25,13 +26,27 @@ from PySide6.QtWidgets import (
 )
 
 from ...common.models import DataType, DeviceConfig, RegisterConfig, RegisterFunction
+from ..discovery import discover_channels
+from ..modbus import ModbusReader
 
-COLUMNS = ["Название канала", "Адрес", "Функция", "Тип", "Масштаб", "Ед.", "Порядок", "Запись"]
+COLUMNS = [
+    "Название канала",
+    "Адрес",
+    "Функция",
+    "Тип",
+    "Масштаб",
+    "Ед.",
+    "Порядок",
+    "Запись",
+    "Значение",
+]
 
 CHANNEL_HINT = (
     "По Modbus читаются только значения из ячеек памяти устройства — что именно "
     "подключено к ячейке, нужно определить на месте (сравнивая показания) и вписать "
-    "понятное имя канала вручную. Это имя увидят все клиенты."
+    "понятное имя канала вручную. Это имя увидят все клиенты.\n"
+    "Нажмите «Найти каналы», чтобы сервер сам опросил устройство и показал найденные "
+    "каналы с текущими показаниями — по ним легко понять, где температура, где проводимость."
 )
 
 
@@ -88,6 +103,26 @@ class DeviceDialog(QDialog):
         row_buttons.addWidget(remove_button)
         row_buttons.addStretch(1)
 
+        # -- automatic channel discovery -----------------------------------
+        self.scan_function = QComboBox()
+        self.scan_function.addItems([RegisterFunction.INPUT.value, RegisterFunction.HOLDING.value])
+        self.scan_start = QSpinBox()
+        self.scan_start.setRange(0, 65535)
+        self.scan_start.setValue(0)
+        self.scan_end = QSpinBox()
+        self.scan_end.setRange(1, 65535)
+        self.scan_end.setValue(4096)
+        self.scan_button = QPushButton("Найти каналы")
+        self.scan_button.clicked.connect(self._scan_channels)
+        scan_row = QHBoxLayout()
+        scan_row.addWidget(QLabel("Поиск:"))
+        scan_row.addWidget(self.scan_function)
+        scan_row.addWidget(QLabel("с"))
+        scan_row.addWidget(self.scan_start)
+        scan_row.addWidget(QLabel("по"))
+        scan_row.addWidget(self.scan_end)
+        scan_row.addWidget(self.scan_button)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
@@ -99,6 +134,7 @@ class DeviceDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(hint)
+        layout.addLayout(scan_row)
         layout.addWidget(self.table)
         layout.addLayout(row_buttons)
         layout.addWidget(buttons)
@@ -117,7 +153,9 @@ class DeviceDialog(QDialog):
             combo.setCurrentIndex(index)
         return combo
 
-    def _add_row(self, register: Optional[RegisterConfig] = None) -> None:
+    def _add_row(
+        self, register: Optional[RegisterConfig] = None, value: Optional[float] = None
+    ) -> None:
         row = self.table.rowCount()
         self.table.insertRow(row)
         if register is None:
@@ -140,6 +178,73 @@ class DeviceDialog(QDialog):
         writable.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
         writable.setCheckState(Qt.Checked if register.writable else Qt.Unchecked)
         self.table.setItem(row, 7, writable)
+        value_item = QTableWidgetItem("" if value is None else f"{value:.6g}")
+        value_item.setFlags(Qt.ItemIsEnabled)
+        self.table.setItem(row, 8, value_item)
+
+    # -- discovery ----------------------------------------------------------
+    def _scan_channels(self) -> None:
+        host = self.host_edit.text().strip()
+        if not host:
+            QMessageBox.warning(self, "Поиск каналов", "Укажите IP адрес устройства.")
+            return
+        function = self.scan_function.currentText()
+        start = self.scan_start.value()
+        end = self.scan_end.value()
+        if end <= start:
+            QMessageBox.warning(self, "Поиск каналов", "Конец диапазона должен быть больше начала.")
+            return
+
+        device = DeviceConfig(
+            id="scan",
+            name="scan",
+            host=host,
+            port=self.port_spin.value(),
+            device_id=self.device_id_spin.value(),
+            timeout=self.timeout_spin.value(),
+            retries=self.retries_spin.value(),
+        )
+        reader = ModbusReader()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            candidates = discover_channels(reader, device, function=function, start=start, end=end)
+        except Exception as exc:  # pragma: no cover - defensive
+            candidates = []
+            QMessageBox.warning(self, "Поиск каналов", f"Ошибка опроса: {exc}")
+        finally:
+            reader.close()
+            QApplication.restoreOverrideCursor()
+
+        existing = set()
+        for row in range(self.table.rowCount()):
+            address_item = self.table.item(row, 1)
+            function_widget = self.table.cellWidget(row, 2)
+            if address_item is None or function_widget is None:
+                continue
+            try:
+                address = int(address_item.text())
+            except ValueError:
+                continue
+            existing.add((function_widget.currentText(), address))
+        added = 0
+        for candidate in candidates:
+            key = (candidate.register.function, candidate.register.address)
+            if key in existing:
+                continue
+            self._add_row(candidate.register, candidate.value)
+            existing.add(key)
+            added += 1
+
+        if added:
+            QMessageBox.information(
+                self,
+                "Поиск каналов",
+                f"Найдено каналов: {added}. Впишите понятные имена и сохраните устройство.",
+            )
+        else:
+            QMessageBox.information(
+                self, "Поиск каналов", "Новые каналы не найдены в указанном диапазоне."
+            )
 
     def _remove_row(self) -> None:
         row = self.table.currentRow()

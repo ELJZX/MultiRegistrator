@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
@@ -12,6 +13,21 @@ from ..common.models import DeviceStatus
 from .api import ApiServer, create_app, resolve_bind_host
 from .modbus import ModbusReader
 from .service import ServerService
+
+
+def _ensure_console_streams() -> None:
+    """Guarantee ``sys.stdout``/``sys.stderr`` exist.
+
+    In a windowed GUI (``pythonw`` or a PyInstaller ``--windowed`` build) the
+    standard streams are ``None``.  Libraries that call ``isatty()`` on them
+    (for example uvicorn's coloured log formatter) then crash.  Pointing the
+    missing streams at the null device keeps everything working.
+    """
+
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
 
 def _build_runtime(config, on_status=None):
@@ -87,6 +103,7 @@ def _run_headless(config) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ensure_console_streams()
     argv = list(sys.argv if argv is None else argv)
     parser = argparse.ArgumentParser(description="MultiRegistrator server")
     parser.add_argument("--autostart", action="store_true", help="запустить сервер сразу")
@@ -102,16 +119,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.headless:
         return _run_headless(config)
 
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QGuiApplication
     from PySide6.QtWidgets import QApplication
 
+    from ..common.theme import apply_light_theme
     from .ui.main_window import ServerMainWindow
 
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication([argv[0], *qt_args])
     app.setApplicationName("MultiRegistrator Server")
     app.setOrganizationName("MultiRegistrator")
+    apply_light_theme(app)
 
     window = ServerMainWindow(config)
-    window.show()
+    window.showMaximized()
     if args.autostart:
         from PySide6.QtCore import QTimer
 
