@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QStackedWidget,
     QStatusBar,
@@ -29,6 +30,8 @@ from .graph_window import GraphView
 ONLINE_COLOR = QColor(0, 150, 0)
 OFFLINE_COLOR = QColor(200, 0, 0)
 
+TREE_STYLE = "QTreeView::item:selected { background: #cce8ff; color: #000; }"
+
 
 class ClientMainWindow(QMainWindow):
     def __init__(self, config: Optional[ClientConfig] = None) -> None:
@@ -38,6 +41,7 @@ class ClientMainWindow(QMainWindow):
         self.config = config or load_client_config()
         self.api: Optional[ServerApiClient] = None
         self.devices: list[dict] = []
+        self._selected_id: Optional[str] = None
 
         self.refresh_timer = QTimer(self)
         self.refresh_timer.setInterval(2000)
@@ -52,7 +56,6 @@ class ClientMainWindow(QMainWindow):
         self.stack.addWidget(self._build_list_page())
 
         self.graph_view = GraphView(refresh_ms=self.config.settings.live_refresh_ms)
-        self.graph_view.back_requested.connect(self._show_list)
         self.stack.addWidget(self.graph_view)
 
         self.setCentralWidget(self.stack)
@@ -61,16 +64,21 @@ class ClientMainWindow(QMainWindow):
 
     def _build_list_page(self) -> QWidget:
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Сеть"])
-        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.tree.setHeaderLabels(["Устройства"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setStyleSheet(TREE_STYLE)
         self.tree.currentItemChanged.connect(lambda *_: self._show_info())
 
         self.info = QWidget()
         self.info_layout = QVBoxLayout(self.info)
-        self.info_title = QLabel("<b>Общие настройки клиента</b>")
+        self.info_title = QLabel("<b>Устройства</b>")
         self.info_form = QFormLayout()
+        self.info_connect_button = QPushButton("Подключиться")
+        self.info_connect_button.clicked.connect(self._open_selected_device)
+        self.info_connect_button.setVisible(False)
         self.info_layout.addWidget(self.info_title)
         self.info_layout.addLayout(self.info_form)
+        self.info_layout.addWidget(self.info_connect_button)
         self.info_layout.addStretch(1)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -87,32 +95,41 @@ class ClientMainWindow(QMainWindow):
         self.disconnect_action.setEnabled(False)
         self.settings_action = QAction("Настройка соединения", self)
         self.settings_action.triggered.connect(self._open_settings)
-        self.back_action = QAction("← Назад", self)
+        self.back_action = QAction("Назад к списку устройств", self)
         self.back_action.triggered.connect(self._show_list)
+        self.back_action.setVisible(False)
         self.back_action.setEnabled(False)
 
         # A single row of buttons (no duplicated menu entries).
-        toolbar = self.addToolBar("Панель")
-        toolbar.setMovable(False)
-        toolbar.addAction(self.connect_action)
-        toolbar.addAction(self.disconnect_action)
-        toolbar.addAction(self.settings_action)
-        toolbar.addSeparator()
-        toolbar.addAction(self.back_action)
+        self.toolbar = self.addToolBar("Панель")
+        self.toolbar.setMovable(False)
+        self.toolbar.addAction(self.connect_action)
+        self.toolbar.addAction(self.disconnect_action)
+        self.toolbar.addAction(self.settings_action)
+        self.toolbar.addSeparator()
+        self.toolbar.addAction(self.back_action)
 
         # No menu bar: the app is closed/minimised with the window buttons.
         self.menuBar().setVisible(False)
+
+    def _set_graph_toolbar(self, on_graph: bool) -> None:
+        """On the graph page keep only the single 'back' button."""
+
+        for action in (self.connect_action, self.disconnect_action, self.settings_action):
+            action.setVisible(not on_graph)
+        self.back_action.setVisible(on_graph)
+        self.back_action.setEnabled(on_graph)
 
     # -- pages --------------------------------------------------------------
     def _show_graph(self, config: dict) -> None:
         self.graph_view.set_device(self.api, config["id"], config["name"])
         self.stack.setCurrentWidget(self.graph_view)
-        self.back_action.setEnabled(True)
+        self._set_graph_toolbar(True)
 
     def _show_list(self) -> None:
         self.graph_view.stop()
         self.stack.setCurrentIndex(0)
-        self.back_action.setEnabled(False)
+        self._set_graph_toolbar(False)
 
     # -- connection ---------------------------------------------------------
     def _open_settings(self) -> None:
@@ -166,6 +183,7 @@ class ClientMainWindow(QMainWindow):
             self.api.close()
             self.api = None
         self.devices = []
+        self._selected_id = None
         self.tree.clear()
         self.connect_action.setEnabled(True)
         self.disconnect_action.setEnabled(False)
@@ -184,9 +202,7 @@ class ClientMainWindow(QMainWindow):
 
     def _rebuild_tree(self) -> None:
         self.tree.clear()
-        network = QTreeWidgetItem(["Сеть"])
-        connection = QTreeWidgetItem([self.config.settings.connection_name])
-        network.addChild(connection)
+        selected_item: Optional[QTreeWidgetItem] = None
         for entry in self.devices:
             config = entry["config"]
             status = entry["status"]
@@ -194,10 +210,11 @@ class ClientMainWindow(QMainWindow):
             item.setData(0, Qt.UserRole, config)
             item.setData(0, Qt.UserRole + 1, status)
             item.setForeground(0, ONLINE_COLOR if status.get("online") else OFFLINE_COLOR)
-            connection.addChild(item)
-        self.tree.addTopLevelItem(network)
-        network.setExpanded(True)
-        connection.setExpanded(True)
+            self.tree.addTopLevelItem(item)
+            if config["id"] == self._selected_id:
+                selected_item = item
+        if selected_item is not None:
+            self.tree.setCurrentItem(selected_item)
 
     def _selected_entry(self) -> Optional[dict]:
         item = self.tree.currentItem()
@@ -210,17 +227,18 @@ class ClientMainWindow(QMainWindow):
             self.info_form.removeRow(0)
         entry = self._selected_entry()
         if entry is None:
-            self.info_title.setText("<b>Общие настройки клиента</b>")
+            self._selected_id = None
+            self.info_title.setText("<b>Устройства</b>")
+            self.info_connect_button.setVisible(False)
             return
+
         config = entry["config"]
         status = entry["status"]
+        self._selected_id = config["id"]
         self.info_title.setText(f"<b>{config['name']}</b>")
         self.info_form.addRow("IP адрес", QLabel(config["host"]))
         self.info_form.addRow("IP порт", QLabel(str(config["port"])))
-        self.info_form.addRow("Modbus ID", QLabel(str(config["device_id"])))
         self.info_form.addRow("Состояние", QLabel("в сети" if status.get("online") else "нет связи"))
-        self.info_form.addRow("Задержка, мс", QLabel(f"{status.get('latency_ms', 0):.1f}"))
-        self.info_form.addRow("Последний успех", QLabel(str(status.get("last_success") or "—")))
         channels = [r["name"] for r in config.get("registers", [])]
         availability = status.get("channel_available", {})
         available = [c for c in channels if availability.get(c, True)]
@@ -228,12 +246,13 @@ class ClientMainWindow(QMainWindow):
         self.info_form.addRow("Каналы", QLabel(", ".join(available) if available else "—"))
         if unavailable:
             self.info_form.addRow("Недоступны", QLabel(", ".join(unavailable)))
+        self.info_connect_button.setVisible(True)
 
-    def _on_item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        config = item.data(0, Qt.UserRole)
-        if config is None or self.api is None:
+    def _open_selected_device(self) -> None:
+        entry = self._selected_entry()
+        if entry is None or self.api is None:
             return
-        self._show_graph(config)
+        self._show_graph(entry["config"])
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._disconnect()

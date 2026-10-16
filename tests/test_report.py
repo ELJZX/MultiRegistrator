@@ -1,48 +1,44 @@
 from datetime import datetime
 
-from multiregistrator.common.report import build_report_lines
+from multiregistrator.common.report import (
+    REPORT_SEPARATOR,
+    build_report_fields,
+    format_report_line,
+)
+
+GENERATED = datetime(2026, 10, 14, 12, 30, 0)
+START = datetime(2026, 10, 14, 11, 0, 0)
+END = datetime(2026, 10, 14, 12, 0, 0)
 
 
-def test_first_line_is_installation_name():
-    lines = build_report_lines(
-        "Тестовое устройство",
-        datetime(2026, 10, 14, 11, 0, 0),
-        datetime(2026, 10, 14, 12, 0, 0),
-        ["temperature", "relay"],
-        generated=datetime(2026, 10, 14, 12, 30, 0),
-    )
-    assert len(lines) == 2
-    assert lines[0] == "Название установки: Тестовое устройство"
+def test_fields_have_expected_labels_and_order():
+    fields = build_report_fields("Тестовое устройство", START, END, ["temperature", "relay"], GENERATED)
+    assert [label for label, _ in fields] == [
+        "Название установки",
+        "Период",
+        "Каналы",
+        "Дата формирования",
+    ]
+    assert fields[0] == ("Название установки", "Тестовое устройство")
+    assert fields[1][1] == "14.10.2026 11:00:00 — 14.10.2026 12:00:00"
+    assert fields[2] == ("Каналы", "temperature, relay")
+    assert fields[3] == ("Дата формирования", "14.10.2026 12:30:00")
 
 
-def test_second_line_has_period_channels_and_time():
-    lines = build_report_lines(
-        "Dev",
-        datetime(2026, 10, 14, 11, 0, 0),
-        datetime(2026, 10, 14, 12, 0, 0),
-        ["temperature", "relay"],
-        generated=datetime(2026, 10, 14, 12, 30, 0),
-    )
-    info = lines[1]
-    assert "Период: 14.10.2026 11:00:00 — 14.10.2026 12:00:00" in info
-    assert "Каналы: temperature, relay" in info
-    assert "Дата формирования: 14.10.2026 12:30:00" in info
-
-
-def test_no_title_prefix():
-    lines = build_report_lines(
-        "Dev", datetime(2026, 1, 1), datetime(2026, 1, 2), ["a"]
-    )
-    assert not lines[0].startswith("MultiRegistrator")
+def test_format_report_line_is_single_line_with_all_fields():
+    fields = build_report_fields("Dev", START, END, ["a", "b"], GENERATED)
+    line = format_report_line(fields)
+    assert "\n" not in line
+    assert line.count(REPORT_SEPARATOR) == 3
+    for label in ("Название установки", "Период", "Каналы", "Дата формирования"):
+        assert f"{label}:" in line
 
 
 def test_without_channels():
-    lines = build_report_lines(
-        "Dev", datetime(2026, 1, 1), datetime(2026, 1, 2), []
-    )
-    assert "Каналы: (все)" in lines[1]
+    fields = build_report_fields("Dev", START, END, [], GENERATED)
+    assert fields[2] == ("Каналы", "(все)")
 
 
 def test_default_generation_time():
-    lines = build_report_lines("Dev", datetime(2026, 1, 1), datetime(2026, 1, 2), ["a"])
-    assert "Дата формирования: " in lines[1]
+    fields = build_report_fields("Dev", START, END, ["a"])
+    assert fields[3][0] == "Дата формирования"

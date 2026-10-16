@@ -153,15 +153,22 @@ def _graph_channels():
     view = GraphView()
     view.set_device(FakeGraphApi(), "d1", "Test")
     try:
-        assert set(view.channel_buttons) == {"temperature", "humidity", "relay"}
+        assert set(view.channel_checks) == {"temperature", "humidity", "relay"}
+        assert all(box.isChecked() for box in view.channel_checks.values())
         assert view.live_mode is True
         assert set(view.curves) == {"temperature", "humidity", "relay"}
 
-        view.channel_buttons["humidity"].setChecked(False)
+        # Removing a channel must not reset the other curves' data.
+        view._poll_live()
+        temperature_points = len(view.live_data["temperature"][0])
+        assert temperature_points >= 1
+
+        view.channel_checks["humidity"].setChecked(False)
         assert "humidity" not in view.selected_channels
         assert "humidity" not in view.curves
+        assert len(view.live_data["temperature"][0]) >= temperature_points
 
-        view.channel_buttons["humidity"].setChecked(True)
+        view.channel_checks["humidity"].setChecked(True)
         assert "humidity" in view.selected_channels
         assert "humidity" in view.curves
     finally:
@@ -183,10 +190,17 @@ def _graph_window():
     assert all(view.plot.getViewBox().autoRangeEnabled())
     view.autoscale_button.setChecked(False)
     assert not any(view.plot.getViewBox().autoRangeEnabled())
-    lines = view._report_lines()
-    assert lines[0] == "Название установки: Test"
-    assert "Период:" in lines[1]
-    assert "Дата формирования:" in lines[1]
+    fields = view._report_fields()
+    assert [label for label, _ in fields] == [
+        "Название установки",
+        "Период",
+        "Каналы",
+        "Дата формирования",
+    ]
+    assert fields[0][1] == "Test"
+    line = view._report_line()
+    assert "\n" not in line
+    assert "Название установки: Test" in line
     view.stop()
 
 

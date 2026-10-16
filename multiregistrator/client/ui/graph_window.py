@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from datetime import datetime
+from html import escape
 from typing import Optional
 
 import pyqtgraph as pg
@@ -20,10 +21,11 @@ from PySide6.QtGui import (
     QPainter,
     QPdfWriter,
     QPixmap,
+    QTextDocument,
 )
 from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
 from PySide6.QtWidgets import (
-    QApplication,
+    QCheckBox,
     QDateTimeEdit,
     QFileDialog,
     QFrame,
@@ -39,7 +41,7 @@ from PySide6.QtWidgets import (
 
 from ...common.models import TimeSeries
 from ...common.plotting import clamp_period_start, with_margin
-from ...common.report import build_report_lines
+from ...common.report import REPORT_SEPARATOR, build_report_fields
 from ..api_client import ServerApiClient, ServerApiError
 
 MAX_LIVE_POINTS = 7200
@@ -57,13 +59,11 @@ GRID_ALPHA = 0.3
 LIVE_ON_STYLE = "background-color:#2e8b57; color:white; font-weight:bold;"
 LIVE_OFF_STYLE = "background-color:#c8c8c8; color:#303030;"
 
+HTML_SEPARATOR = "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;"
+
 
 class TimeAxisItem(pg.DateAxisItem):
-    """Time axis whose smallest step is 5 seconds.
-
-    The default pyqtgraph date axis zooms down to sub-second labels; here ticks
-    never get finer than 5 seconds, which keeps the X axis readable in live mode.
-    """
+    """Time axis whose smallest step is 5 seconds."""
 
     MIN_TICK_PX = 50.0
     STEPS = [
@@ -118,6 +118,8 @@ class GraphView(QWidget):
         self.selected_channels: list[str] = []
         self.curves: dict[str, pg.PlotDataItem] = {}
         self.live_data: dict[str, tuple[deque, deque]] = {}
+        self.static_data: dict[str, tuple[list, list]] = {}
+        self.channel_checks: dict[str, QCheckBox] = {}
         self.live_mode = False
         self._static_built = False
 
@@ -155,18 +157,15 @@ class GraphView(QWidget):
         period_layout.addWidget(self.end_edit)
         panel_layout.addWidget(period_box)
 
-        # Channel list: one checkable button per available channel, right below
-        # the period selection.  Toggling a channel adds/removes its graph.
+        # Channels: a checkbox per channel, right below the period selection.
         self.channels_box = QGroupBox("Каналы")
         self.channels_layout = QVBoxLayout(self.channels_box)
-        self.channel_buttons: dict[str, QPushButton] = {}
         panel_layout.addWidget(self.channels_box)
 
         self.build_button = QPushButton("Сформировать график")
         self.build_button.clicked.connect(self._build_static)
         panel_layout.addWidget(self.build_button)
 
-        # The display/export controls form a separate group.
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
@@ -225,12 +224,6 @@ class GraphView(QWidget):
         self._update_live_style()
 
     def _style_legend(self) -> None:
-        """Make the channel box a solid, opaque white panel.
-
-        The default pyqtgraph legend is translucent, so the grid shows through
-        it.  A fully opaque brush keeps the channel list readable.
-        """
-
         if self._legend is None:
             return
         self._legend.frame = True
@@ -255,13 +248,12 @@ class GraphView(QWidget):
         if api is not None:
             self._load_channels()
             # A device always opens in real-time mode.
-            self._static_built = False
             if not self.live_button.isChecked():
                 self.live_button.setChecked(True)  # triggers _start_live
             else:
                 self._start_live()
         else:
-            self._rebuild_channel_buttons()
+            self._rebuild_channel_checks()
 
     # -- channels -----------------------------------------------------------
     def _load_channels(self) -> None:
@@ -270,35 +262,39 @@ class GraphView(QWidget):
         except ServerApiError:
             channels = []
         self.available_channels = channels
-        self.selected_channels = list(channels)
-        self._rebuild_channel_buttons()
+        self.selected_channels = list(channels)  # all channels checked by default
+        self._rebuild_channel_checks()
 
-    def _rebuild_channel_buttons(self) -> None:
-        """Create one checkable button per available channel."""
-
+    def _rebuild_channel_checks(self) -> None:
         while self.channels_layout.count():
             item = self.channels_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-        self.channel_buttons.clear()
+        self.channel_checks.clear()
 
         if not self.available_channels:
             self.channels_layout.addWidget(QLabel("Нет доступных каналов"))
             return
 
         for channel in self.available_channels:
-            button = QPushButton(channel)
-            button.setCheckable(True)
-            button.setChecked(channel in self.selected_channels)
-            button.toggled.connect(
+            box = QCheckBox(channel)
+            box.setChecked(channel in self.selected_channels)
+            box.toggled.connect(
                 lambda checked, name=channel: self._on_channel_toggled(name, checked)
             )
-            self.channels_layout.addWidget(button)
-            self.channel_buttons[channel] = button
+            self.channels_layout.addWidget(box)
+            self.channel_checks[channel] = box
+
+    def _color_for(self, channel: str) -> str:
+        try:
+            index = self.available_channels.index(channel)
+        except ValueError:
+            index = 0
+        return LIVE_COLORS[index % len(LIVE_COLORS)]
 
     def _on_channel_toggled(self, channel: str, checked: bool) -> None:
-        """Add/remove a channel; in real-time mode the graph is reloaded."""
+        """Add/remove one channel without resetting the existing graph."""
 
         if checked and channel not in self.selected_channels:
             self.selected_channels.append(channel)
@@ -306,9 +302,43 @@ class GraphView(QWidget):
             self.selected_channels.remove(channel)
 
         if self.live_mode:
-            self._start_live()  # reload with the new channel set
+            if checked:
+                self._add_live_curve(channel)
+            else:
+                self._remove_curve(channel)
+                self.live_data.pop(channel, None)
         elif self._static_built:
-            self._build_static()
+            if checked:
+                self._add_static_curve(channel)
+            else:
+                self._remove_curve(channel)
+
+    def _remove_curve(self, channel: str) -> None:
+        curve = self.curves.pop(channel, None)
+        if curve is not None:
+            self.plot.removeItem(curve)
+            if self._legend is not None:
+                self._legend.removeItem(channel)
+
+    def _add_live_curve(self, channel: str) -> None:
+        if channel in self.curves:
+            return
+        self.live_data[channel] = (deque(maxlen=MAX_LIVE_POINTS), deque(maxlen=MAX_LIVE_POINTS))
+        self.curves[channel] = self.plot.plot(
+            [], [], pen=pg.mkPen(self._color_for(channel), width=1.6), name=channel
+        )
+
+    def _add_static_curve(self, channel: str) -> None:
+        if channel in self.curves or channel not in self.static_data:
+            return
+        xs, values = self.static_data[channel]
+        self.curves[channel] = self.plot.plot(
+            xs,
+            values,
+            pen=pg.mkPen(self._color_for(channel), width=1.6),
+            name=channel,
+            connect="finite",
+        )
 
     # -- static plotting ----------------------------------------------------
     def _build_static(self) -> None:
@@ -320,46 +350,41 @@ class GraphView(QWidget):
         if end <= start:
             start, end = end, start
         try:
-            series = self.api.data(self.device_id, start, end, self.selected_channels or None)
+            # Fetch every available channel once so toggling never re-queries.
+            series = self.api.data(
+                self.device_id, start, end, self.available_channels or None
+            )
         except ServerApiError as exc:
             QMessageBox.warning(self, "Ошибка", str(exc))
             return
         if not series:
             self._set_status("За указанный период данные не найдены")
             return
-        self._plot_series(series)
+
+        self._clear_plot()
+        for channel, ts in sorted(series.items()):
+            times, values = ts.numeric()
+            if times:
+                self.static_data[channel] = ([m.timestamp() for m in times], values)
+        for channel in self.selected_channels:
+            self._add_static_curve(channel)
+
         self._apply_time_window(start, end)
         self._autoscale_y()
         self._static_built = True
         self._set_status(
-            f"Статичный график: {len(series)} канал(ов) за {start:%d.%m.%Y %H:%M} — {end:%d.%m.%Y %H:%M}"
+            f"Статичный график: {len(self.curves)} канал(ов) за {start:%d.%m.%Y %H:%M} — {end:%d.%m.%Y %H:%M}"
         )
 
     def _clear_plot(self) -> None:
         self.plot.clear()
         self.curves.clear()
+        self.static_data = {}
         if self._legend is not None:
             self._legend.clear()
         self._style_legend()
 
-    def _plot_series(self, series: dict[str, TimeSeries]) -> None:
-        self._clear_plot()
-        for index, (channel, ts) in enumerate(sorted(series.items())):
-            times, values = ts.numeric()
-            if not times:
-                continue
-            xs = [moment.timestamp() for moment in times]
-            self.curves[channel] = self.plot.plot(
-                xs,
-                values,
-                pen=pg.mkPen(LIVE_COLORS[index % len(LIVE_COLORS)], width=1.6),
-                name=channel,
-                connect="finite",
-            )
-
     def _apply_time_window(self, start: datetime, end: datetime) -> None:
-        """Limit the visible time span to 24 h (+10%) and leave zoom headroom."""
-
         view_start = clamp_period_start(start, end)
         self.plot.setXRange(view_start.timestamp(), end.timestamp(), padding=0.0)
         pad_start, pad_end = with_margin(view_start, end, 0.1)
@@ -379,8 +404,6 @@ class GraphView(QWidget):
         self.plot.setYRange(low, high, padding=0.05)
 
     def _on_autoscale_toggled(self, checked: bool) -> None:
-        """Mirror pyqtgraph's auto-range button (the small 'A')."""
-
         viewbox = self.plot.getPlotItem().getViewBox()
         if checked:
             viewbox.enableAutoRange(enable=True)
@@ -389,8 +412,6 @@ class GraphView(QWidget):
             viewbox.enableAutoRange(enable=False)
 
     def _on_grid_toggled(self, checked: bool) -> None:
-        """Hide/show the coordinate grid (works in both static and live mode)."""
-
         self.plot.getPlotItem().showGrid(x=not checked, y=not checked, alpha=GRID_ALPHA)
 
     # -- live mode ----------------------------------------------------------
@@ -434,17 +455,9 @@ class GraphView(QWidget):
         if not self.available_channels:
             self._load_channels()
         self._clear_plot()
-        self.live_data = {
-            channel: (deque(maxlen=MAX_LIVE_POINTS), deque(maxlen=MAX_LIVE_POINTS))
-            for channel in self.selected_channels
-        }
-        for index, channel in enumerate(self.selected_channels):
-            self.curves[channel] = self.plot.plot(
-                [],
-                [],
-                pen=pg.mkPen(LIVE_COLORS[index % len(LIVE_COLORS)], width=1.6),
-                name=channel,
-            )
+        self.live_data = {}
+        for channel in self.selected_channels:
+            self._add_live_curve(channel)
         self.live_mode = True
         self._static_built = False
         self.live_timer.start()
@@ -473,7 +486,10 @@ class GraphView(QWidget):
             times.append(timestamp)
             series_values.append(None if value is None else float(value))
         for channel, curve in self.curves.items():
-            times, series_values = self.live_data[channel]
+            data = self.live_data.get(channel)
+            if data is None:
+                continue
+            times, series_values = data
             curve.setData(list(times), list(series_values))
         self._follow_live(timestamp)
         if payload.get("online"):
@@ -486,49 +502,62 @@ class GraphView(QWidget):
     def _follow_live(self, latest: float) -> None:
         """Scroll the live window so the newest point sits at 80% of the width.
 
-        The remaining 20% on the right is free space, so the end of the graph is
-        always visually clear.
+        Skipped while auto-scale is active, otherwise it would fight the
+        auto-range and make the graph flash between two different ranges.
         """
 
+        if self.autoscale_button.isChecked():
+            return
         span = LIVE_WINDOW_SECONDS
         x_max = latest + span * LIVE_RIGHT_MARGIN
         x_min = x_max - span
         self.plot.setXRange(x_min, x_max, padding=0.0)
 
     # -- report (PDF / print) ----------------------------------------------
-    def _report_lines(self) -> list[str]:
+    def _report_fields(self) -> list[tuple[str, str]]:
         start = self.start_edit.dateTime().toPython()
         end = self.end_edit.dateTime().toPython()
-        return build_report_lines(self.device_name, start, end, self.selected_channels)
+        return build_report_fields(self.device_name, start, end, self.selected_channels)
 
-    def _paint_report(self, painter: QPainter, rect: QRectF, pixmap: QPixmap, lines: list[str]) -> None:
-        """Draw a compact header at the top and let the graph fill the sheet."""
+    def _report_line(self) -> str:
+        return REPORT_SEPARATOR.join(f"{label}: {value}" for label, value in self._report_fields())
+
+    def _paint_report(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        pixmap: QPixmap,
+        fields: list[tuple[str, str]],
+    ) -> None:
+        """One header line (bold labels) and the graph filling the sheet."""
 
         painter.fillRect(rect, Qt.white)
-        painter.setPen(Qt.black)
         margin = rect.width() * 0.015
         x = rect.left() + margin
         y = rect.top() + margin
         width = rect.width() - 2 * margin
         base = rect.height() * 0.018
 
-        title_font = QFont()
-        title_font.setPixelSize(max(10, int(base * 1.3)))
-        title_font.setBold(True)
-        info_font = QFont()
-        info_font.setPixelSize(max(8, int(base * 0.95)))
+        font = QFont()
+        font.setPixelSize(max(8, int(base * 0.95)))
+        document = QTextDocument()
+        document.setDefaultFont(font)
+        document.setHtml(
+            HTML_SEPARATOR.join(
+                f"<b>{escape(label)}:</b> {escape(value)}" for label, value in fields
+            )
+        )
+        document.setTextWidth(width)
 
-        painter.setFont(title_font)
-        painter.drawText(int(x), int(y + base * 1.3), lines[0])
+        painter.setPen(Qt.black)
+        painter.save()
+        painter.translate(x, y)
+        document.drawContents(painter)
+        painter.restore()
 
-        info = "   |   ".join(lines[1:])
-        painter.setFont(info_font)
-        painter.drawText(int(x), int(y + base * 2.7), info)
-
-        graph_y = y + base * 3.6
+        graph_y = y + document.size().height() + base
         graph_h = rect.bottom() - margin - graph_y
         if pixmap is not None and not pixmap.isNull() and graph_h > 0:
-            # Fill the whole remaining sheet (100% of the page width/height).
             scaled = pixmap.scaled(
                 int(width), int(graph_h), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
             )
@@ -540,7 +569,7 @@ class GraphView(QWidget):
         if not path:
             return
         pixmap = self.plot.grab()
-        lines = self._report_lines()
+        fields = self._report_fields()
         writer = QPdfWriter(path)
         writer.setPageSize(QPageSize(QPageSize.A4))
         writer.setPageOrientation(QPageLayout.Landscape)
@@ -548,7 +577,7 @@ class GraphView(QWidget):
         painter = QPainter(writer)
         try:
             rect = QRectF(0, 0, writer.width(), writer.height())
-            self._paint_report(painter, rect, pixmap, lines)
+            self._paint_report(painter, rect, pixmap, fields)
         finally:
             painter.end()
         self._set_status(f"График сохранён: {path}")
@@ -564,11 +593,11 @@ class GraphView(QWidget):
 
     def _print_report(self, printer: QPrinter) -> None:
         pixmap = self.plot.grab()
-        lines = self._report_lines()
+        fields = self._report_fields()
         painter = QPainter(printer)
         try:
             rect = QRectF(printer.pageRect(QPrinter.DevicePixel))
-            self._paint_report(painter, rect, pixmap, lines)
+            self._paint_report(painter, rect, pixmap, fields)
         finally:
             painter.end()
 
