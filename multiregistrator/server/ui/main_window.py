@@ -64,6 +64,7 @@ class ServerMainWindow(QMainWindow):
         self.service: Optional[ServerService] = None
         self.api: Optional[ApiServer] = None
         self._statuses: dict[str, DeviceStatus] = {}
+        self._device_map: dict[str, DeviceConfig] = {}
         self.bridge = StatusBridge()
         self.bridge.statusChanged.connect(self._on_status)
         self.bridge.message.connect(self._log)
@@ -147,6 +148,7 @@ class ServerMainWindow(QMainWindow):
 
     # -- device list --------------------------------------------------------
     def _refresh_devices(self) -> None:
+        self._device_map = {device.id: device for device in self.config.devices}
         self.tree.clear()
         root = QTreeWidgetItem(["Сеть"])
         server_item = QTreeWidgetItem(["Сервер"])
@@ -188,10 +190,7 @@ class ServerMainWindow(QMainWindow):
         self._update_table()
 
     def _device_by_id(self, device_id: str) -> Optional[DeviceConfig]:
-        for device in self.config.devices:
-            if device.id == device_id:
-                return device
-        return None
+        return self._device_map.get(device_id)
 
     def _update_table(self) -> None:
         for row, device in enumerate(self.config.devices):

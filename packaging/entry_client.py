@@ -1,4 +1,4 @@
-"""Launch the MultiRegistrator client (GUI)."""
+"""PyInstaller entry point for the MultiRegistrator client."""
 
 from multiregistrator.client.app import main
 

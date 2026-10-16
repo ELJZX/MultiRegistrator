@@ -22,19 +22,19 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --specpath build 
     --hidden-import uvicorn.protocols.http.auto `
     --hidden-import uvicorn.protocols.websockets.auto `
     --hidden-import uvicorn.lifespan.on `
-    run_server.py
+    packaging\entry_server.py
 
 Write-Host "Building MultiRegistratorClient.exe ..."
 python -m PyInstaller --noconfirm --clean --onefile --windowed --specpath build `
     --name MultiRegistratorClient `
     --collect-submodules pyqtgraph `
     --collect-submodules requests `
-    run_client.py
+    packaging\entry_client.py
 
 Write-Host "Building MultiRegistratorTestDevice.exe ..."
 python -m PyInstaller --noconfirm --clean --onefile --console --specpath build `
     --name MultiRegistratorTestDevice `
-    test_device.py
+    packaging\entry_test_device.py
 
 Write-Host "Copying executables to the project root ..."
 Copy-Item "dist\MultiRegistratorServer.exe" -Destination $root -Force

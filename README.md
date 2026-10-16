@@ -53,33 +53,41 @@ python -m pip install -r requirements.txt
 
 ## Запуск
 
+Основной способ — готовые `.exe`:
+
+* `MultiRegistratorServer.exe` — сервер;
+* `MultiRegistratorClient.exe` — клиент;
+* `MultiRegistratorTestDevice.exe` — тестовое устройство.
+
+Запуск из исходников (для разработки):
+
 ```powershell
 # Сервер
-python run_server.py
+python -m multiregistrator.server.app
 
 # Клиент
-python run_client.py
+python -m multiregistrator.client.app
+
+# Тестовое устройство
+python -m multiregistrator.tools.test_device
 ```
 
-Порядок работы: в сервере добавить устройства через меню «Сервер → Добавить устройство»,
+Порядок работы: в сервере добавить устройства через «Добавить устройство»,
 затем нажать «Запустить сервер». После этого пользователи запускают клиент,
 подключаются к серверу и открывают графики по устройствам.
 
 ## Быстрый старт (без Python)
 
-Готовые exe и бат-файлы-лаунчеры лежат в корне проекта:
-
-* `start_server.bat` — запустить сервер;
-* `start_client.bat` — запустить клиент;
-* `test_device.bat` — запустить тестовое устройство.
+Готовые exe лежат в корне проекта (`MultiRegistratorServer.exe`,
+`MultiRegistratorClient.exe`, `MultiRegistratorTestDevice.exe`).
 
 Как всё проверить:
 
 1. Создать демо-данные и добавить тестовое устройство в конфиг:
    `python -m multiregistrator.tools.generate_test_data`.
-2. `test_device.bat` — запустить виртуальное устройство (окно не закрывать).
-3. `start_server.bat` — запустить сервер и нажать «Запустить сервер».
-4. `start_client.bat` — запустить клиент, подключиться и двойным щелчком открыть график.
+2. `MultiRegistratorTestDevice.exe` — запустить виртуальное устройство (окно не закрывать).
+3. `MultiRegistratorServer.exe --autostart` — запустить сервер.
+4. `MultiRegistratorClient.exe --autoconnect` — запустить клиент и двойным щелчком открыть график.
 
 ### Параметры запуска exe
 
@@ -123,11 +131,10 @@ Python на целевой машине не требуется. Папки `con
 Для проверки без реального оборудования есть эмулятор: Modbus/TCP-слейв, который
 постоянно отдаёт случайную температуру (а также влажность, счётчик и реле).
 
-Запуск — двойным кликом по `test_device.bat`. Устройство активно, пока открыто окно
-консоли: закройте его, чтобы остановить. Бат-файл сначала ищет exe в корне проекта,
-затем в `dist\`, иначе запускает `test_device.py` через Python.
+Запуск — двойным кликом по `MultiRegistratorTestDevice.exe`. Устройство активно, пока
+открыто окно консоли: закройте его, чтобы остановить.
 
-Параметры (можно передать в бат-файл, например `test_device.bat --port 5020`):
+Параметры (например `MultiRegistratorTestDevice.exe --port 5020`):
 
 ```
 --host         адрес прослушивания       (по умолчанию 0.0.0.0)
@@ -192,16 +199,16 @@ timestamp,analogIn,freqIn,relayStates
 
 ```
 multiregistrator/
-    common/     модели, конфигурация, архив (общие для сервера и клиента)
-    server/     Modbus-опрос, планировщик, HTTP API, GUI
+    common/     модели, конфигурация, архив, тема оформления (общие)
+    server/     Modbus-опрос, планировщик, HTTP API, поиск каналов, GUI
     client/     REST-клиент, GUI, графики
     tools/      эмулятор Modbus-устройства и генератор температуры
+packaging/      точки входа и скрипт сборки .exe
 tests/          тесты на функции всех модулей
-run_server.py   запуск сервера
-run_client.py   запуск клиента
-test_device.py  тестовое устройство (эмулятор Modbus/TCP)
-test_device.bat запуск тестового устройства
 ```
+
+Запуск: готовые `MultiRegistratorServer/Client/TestDevice.exe` в корне проекта
+(или `python -m multiregistrator.server.app` / `.client.app` / `.tools.test_device`).
 
 ## Тесты
 

@@ -85,6 +85,35 @@ def _device_dialog():
         raise AssertionError("expected ValueError")
 
 
+@check("device dialog defaults and tabs")
+def _device_dialog_defaults():
+    from PySide6.QtWidgets import QTabWidget
+
+    dialog = DeviceDialog()
+    tabs = dialog.findChild(QTabWidget)
+    assert tabs is not None
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["Устройство", "Дополнительно"]
+
+    assert dialog.default_function.currentText() == "input"
+    assert dialog.default_type.currentText() == "float32"
+    assert dialog.default_word_order.currentText() == "little"
+
+    dialog.name_edit.setText("New")
+    dialog.host_edit.setText("10.0.0.5")
+    device = dialog._build_device()
+    assert device.registers[0].function == "input"
+    assert device.registers[0].data_type == "float32"
+    assert device.registers[0].word_order == "little"
+
+    # Changing the defaults must affect newly added rows only.
+    dialog.default_function.setCurrentText("holding")
+    dialog.default_word_order.setCurrentText("big")
+    dialog._add_row()
+    last = dialog.table.rowCount() - 1
+    assert dialog.table.cellWidget(last, 2).currentText() == "holding"
+    assert dialog.table.cellWidget(last, 6).currentText() == "big"
+
+
 @check("client window")
 def _client_window():
     window = ClientMainWindow(ClientConfig(settings=ClientSettings(connection_name="Сервер")))

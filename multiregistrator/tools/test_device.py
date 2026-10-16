@@ -19,9 +19,9 @@ import random
 import sys
 import time
 
-from multiregistrator.common.models import encode_registers
-from multiregistrator.tools.modbus_simulator import ModbusSimulator
-from multiregistrator.tools.temperature import TemperatureSource
+from ..common.models import encode_registers
+from .modbus_simulator import ModbusSimulator
+from .temperature import TemperatureSource
 
 BANNER = """============================================================
  MultiRegistrator - ТЕСТОВОЕ УСТРОЙСТВО (Modbus TCP)
@@ -101,7 +101,3 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         simulator.stop()
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
