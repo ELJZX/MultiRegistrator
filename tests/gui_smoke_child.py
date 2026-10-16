@@ -219,17 +219,14 @@ def _graph_window():
     assert all(view.plot.getViewBox().autoRangeEnabled())
     view.autoscale_button.setChecked(False)
     assert not any(view.plot.getViewBox().autoRangeEnabled())
-    fields = view._report_fields()
-    assert [label for label, _ in fields] == [
-        "Название установки",
-        "Период",
-        "Каналы",
-        "Дата формирования",
-    ]
-    assert fields[0][1] == "Test"
+    header, footer = view._report_fields()
+    assert [label for label, _ in header] == ["Название установки", "Период"]
+    assert [label for label, _ in footer] == ["Каналы", "Дата формирования отчета"]
+    assert header[0][1] == "Test"
     line = view._report_line()
     assert "\n" not in line
     assert "Название установки: Test" in line
+    assert "Дата формирования отчета:" in line
     view.stop()
 
 
@@ -277,10 +274,11 @@ def _client_selection_survives_refresh():
         assert window._selected_id == "d1"
         assert window.info_connect_button.isHidden() is False
 
-        # Clicking an empty area of the list must not clear the info panel.
+        # Clicking an empty area of the list clears the selection.
         window.tree.setCurrentIndex(QModelIndex())
-        assert window._selected_id == "d1"
-        assert window.info_connect_button.isHidden() is False
+        assert window._selected_id is None
+        assert window.info_connect_button.isHidden() is True
+        assert window.info_title.text() == "Выберите устройство из списка"
     finally:
         window.close()
 

@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 
 from ...common.models import TimeSeries
 from ...common.plotting import clamp_period_start, with_margin
-from ...common.report import REPORT_SEPARATOR, build_report_fields
+from ...common.report import build_report_fields, format_report_line
 from ..api_client import ServerApiClient, ServerApiError
 
 MAX_LIVE_POINTS = 7200
@@ -517,32 +517,17 @@ class GraphView(QWidget):
         self.plot.setXRange(x_min, x_max, padding=0.0)
 
     # -- report (PDF / print) ----------------------------------------------
-    def _report_fields(self) -> list[tuple[str, str]]:
+    def _report_fields(self) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         start = self.start_edit.dateTime().toPython()
         end = self.end_edit.dateTime().toPython()
         return build_report_fields(self.device_name, start, end, self.selected_channels)
 
     def _report_line(self) -> str:
-        return REPORT_SEPARATOR.join(f"{label}: {value}" for label, value in self._report_fields())
+        header, footer = self._report_fields()
+        return format_report_line(header + footer)
 
-    def _paint_report(
-        self,
-        painter: QPainter,
-        rect: QRectF,
-        pixmap: QPixmap,
-        fields: list[tuple[str, str]],
-    ) -> None:
-        """One header line (bold labels) and the graph filling the sheet."""
-
-        painter.fillRect(rect, Qt.white)
-        margin = rect.width() * 0.015
-        x = rect.left() + margin
-        y = rect.top() + margin
-        width = rect.width() - 2 * margin
-        base = rect.height() * 0.018
-
-        font = QFont()
-        font.setPixelSize(max(8, int(base * 0.95)))
+    @staticmethod
+    def _fields_document(fields: list[tuple[str, str]], font: QFont, width: float) -> QTextDocument:
         document = QTextDocument()
         document.setDefaultFont(font)
         document.setHtml(
@@ -551,15 +536,47 @@ class GraphView(QWidget):
             )
         )
         document.setTextWidth(width)
+        return document
 
+    def _paint_report(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        pixmap: QPixmap,
+        header: list[tuple[str, str]],
+        footer: list[tuple[str, str]],
+    ) -> None:
+        """Header above the graph, footer below it, filling the A4 sheet."""
+
+        painter.fillRect(rect, Qt.white)
         painter.setPen(Qt.black)
+        margin = rect.width() * 0.02
+        x = rect.left() + margin
+        y = rect.top() + margin
+        width = rect.width() - 2 * margin
+        gap = rect.height() * 0.012
+
+        font = QFont()
+        font.setPixelSize(max(8, int(rect.height() * 0.022)))
+
+        header_doc = self._fields_document(header, font, width)
+        footer_doc = self._fields_document(footer, font, width)
+        header_h = header_doc.size().height()
+        footer_h = footer_doc.size().height()
+
         painter.save()
         painter.translate(x, y)
-        document.drawContents(painter)
+        header_doc.drawContents(painter)
         painter.restore()
 
-        graph_y = y + document.size().height() + base
-        graph_h = rect.bottom() - margin - graph_y
+        footer_y = rect.bottom() - margin - footer_h
+        painter.save()
+        painter.translate(x, footer_y)
+        footer_doc.drawContents(painter)
+        painter.restore()
+
+        graph_y = y + header_h + gap
+        graph_h = footer_y - gap - graph_y
         if pixmap is not None and not pixmap.isNull() and graph_h > 0:
             scaled = pixmap.scaled(
                 int(width), int(graph_h), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
@@ -572,7 +589,7 @@ class GraphView(QWidget):
         if not path:
             return
         pixmap = self.plot.grab()
-        fields = self._report_fields()
+        header, footer = self._report_fields()
         writer = QPdfWriter(path)
         writer.setPageSize(QPageSize(QPageSize.A4))
         writer.setPageOrientation(QPageLayout.Landscape)
@@ -580,7 +597,7 @@ class GraphView(QWidget):
         painter = QPainter(writer)
         try:
             rect = QRectF(0, 0, writer.width(), writer.height())
-            self._paint_report(painter, rect, pixmap, fields)
+            self._paint_report(painter, rect, pixmap, header, footer)
         finally:
             painter.end()
         self._set_status(f"График сохранён: {path}")
@@ -596,11 +613,11 @@ class GraphView(QWidget):
 
     def _print_report(self, printer: QPrinter) -> None:
         pixmap = self.plot.grab()
-        fields = self._report_fields()
+        header, footer = self._report_fields()
         painter = QPainter(printer)
         try:
             rect = QRectF(printer.pageRect(QPrinter.DevicePixel))
-            self._paint_report(painter, rect, pixmap, fields)
+            self._paint_report(painter, rect, pixmap, header, footer)
         finally:
             painter.end()
 

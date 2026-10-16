@@ -244,10 +244,8 @@ class ClientMainWindow(QMainWindow):
     def _show_info(self) -> None:
         entry = self._selected_entry()
         if entry is None:
-            # Clicking an empty area of the list must NOT clear the info panel:
-            # restore the previously selected device instead.
-            if self._selected_id is not None:
-                self._reselect_item(self._selected_id)
+            # Clicking an empty area of the list clears the selection.
+            self._reset_info()
             return
 
         while self.info_form.rowCount():
@@ -267,16 +265,6 @@ class ClientMainWindow(QMainWindow):
         if unavailable:
             self.info_form.addRow("Недоступны", QLabel(", ".join(unavailable)))
         self.info_connect_button.setVisible(True)
-
-    def _reselect_item(self, device_id: str) -> None:
-        for index in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(index)
-            config = item.data(0, Qt.UserRole)
-            if config is not None and config.get("id") == device_id:
-                self.tree.blockSignals(True)
-                self.tree.setCurrentItem(item)
-                self.tree.blockSignals(False)
-                return
 
     def _reset_info(self) -> None:
         while self.info_form.rowCount():
