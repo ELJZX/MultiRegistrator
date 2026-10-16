@@ -15,11 +15,9 @@ import traceback
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from multiregistrator.client.api_client import ServerApiClient
-from multiregistrator.client.ui.channel_dialog import ChannelDialog
 from multiregistrator.client.ui.connection_dialog import ConnectionDialog
 from multiregistrator.client.ui.graph_window import GraphView
 from multiregistrator.client.ui.main_window import ClientMainWindow
@@ -133,12 +131,41 @@ def _connection_dialog():
     assert settings.server_port == 9100
 
 
-@check("channel dialog")
-def _channel_dialog():
-    dialog = ChannelDialog(["a", "b", "c"], ["a"])
-    assert dialog.selected_channels() == ["a"]
-    dialog.list.item(1).setCheckState(Qt.Checked)
-    assert set(dialog.selected_channels()) == {"a", "b"}
+@check("graph channels add/remove in live mode")
+def _graph_channels():
+    class FakeGraphApi:
+        def channels(self, device_id):
+            return ["temperature", "humidity", "relay"]
+
+        def latest(self, device_id):
+            return {
+                "online": True,
+                "last_success": "2026-10-16T21:00:00",
+                "values": {"temperature": 25.0, "humidity": 50.0, "relay": 1.0},
+            }
+
+        def data(self, device_id, start, end, channels=None):
+            return {}
+
+        def close(self):
+            pass
+
+    view = GraphView()
+    view.set_device(FakeGraphApi(), "d1", "Test")
+    try:
+        assert set(view.channel_buttons) == {"temperature", "humidity", "relay"}
+        assert view.live_mode is True
+        assert set(view.curves) == {"temperature", "humidity", "relay"}
+
+        view.channel_buttons["humidity"].setChecked(False)
+        assert "humidity" not in view.selected_channels
+        assert "humidity" not in view.curves
+
+        view.channel_buttons["humidity"].setChecked(True)
+        assert "humidity" in view.selected_channels
+        assert "humidity" in view.curves
+    finally:
+        view.stop()
 
 
 @check("graph view")
@@ -157,9 +184,9 @@ def _graph_window():
     view.autoscale_button.setChecked(False)
     assert not any(view.plot.getViewBox().autoRangeEnabled())
     lines = view._report_lines()
-    assert lines[0].startswith("MultiRegistrator")
-    assert any(line.startswith("Период:") for line in lines)
-    assert any(line.startswith("Дата формирования:") for line in lines)
+    assert lines[0] == "Название установки: Test"
+    assert "Период:" in lines[1]
+    assert "Дата формирования:" in lines[1]
     view.stop()
 
 

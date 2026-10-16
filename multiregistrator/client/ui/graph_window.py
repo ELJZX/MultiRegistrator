@@ -41,7 +41,6 @@ from ...common.models import TimeSeries
 from ...common.plotting import clamp_period_start, with_margin
 from ...common.report import build_report_lines
 from ..api_client import ServerApiClient, ServerApiError
-from .channel_dialog import ChannelDialog
 
 MAX_LIVE_POINTS = 7200
 LIVE_COLORS = [
@@ -156,9 +155,12 @@ class GraphView(QWidget):
         period_layout.addWidget(self.end_edit)
         panel_layout.addWidget(period_box)
 
-        self.channel_button = QPushButton("Выбрать канал данных")
-        self.channel_button.clicked.connect(self._choose_channels)
-        panel_layout.addWidget(self.channel_button)
+        # Channel list: one checkable button per available channel, right below
+        # the period selection.  Toggling a channel adds/removes its graph.
+        self.channels_box = QGroupBox("Каналы")
+        self.channels_layout = QVBoxLayout(self.channels_box)
+        self.channel_buttons: dict[str, QPushButton] = {}
+        panel_layout.addWidget(self.channels_box)
 
         self.build_button = QPushButton("Сформировать график")
         self.build_button.clicked.connect(self._build_static)
@@ -259,7 +261,7 @@ class GraphView(QWidget):
             else:
                 self._start_live()
         else:
-            self._update_channels_tooltip()
+            self._rebuild_channel_buttons()
 
     # -- channels -----------------------------------------------------------
     def _load_channels(self) -> None:
@@ -269,20 +271,44 @@ class GraphView(QWidget):
             channels = []
         self.available_channels = channels
         self.selected_channels = list(channels)
-        self._update_channels_tooltip()
+        self._rebuild_channel_buttons()
 
-    def _update_channels_tooltip(self) -> None:
-        text = ", ".join(self.selected_channels) if self.selected_channels else "(все)"
-        self.channel_button.setToolTip(f"Каналы: {text}")
+    def _rebuild_channel_buttons(self) -> None:
+        """Create one checkable button per available channel."""
 
-    def _choose_channels(self) -> None:
+        while self.channels_layout.count():
+            item = self.channels_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.channel_buttons.clear()
+
         if not self.available_channels:
-            QMessageBox.information(self, "Каналы", "У устройства нет доступных каналов.")
+            self.channels_layout.addWidget(QLabel("Нет доступных каналов"))
             return
-        dialog = ChannelDialog(self.available_channels, self.selected_channels, parent=self)
-        if dialog.exec():
-            self.selected_channels = dialog.selected_channels()
-            self._update_channels_tooltip()
+
+        for channel in self.available_channels:
+            button = QPushButton(channel)
+            button.setCheckable(True)
+            button.setChecked(channel in self.selected_channels)
+            button.toggled.connect(
+                lambda checked, name=channel: self._on_channel_toggled(name, checked)
+            )
+            self.channels_layout.addWidget(button)
+            self.channel_buttons[channel] = button
+
+    def _on_channel_toggled(self, channel: str, checked: bool) -> None:
+        """Add/remove a channel; in real-time mode the graph is reloaded."""
+
+        if checked and channel not in self.selected_channels:
+            self.selected_channels.append(channel)
+        elif not checked and channel in self.selected_channels:
+            self.selected_channels.remove(channel)
+
+        if self.live_mode:
+            self._start_live()  # reload with the new channel set
+        elif self._static_built:
+            self._build_static()
 
     # -- static plotting ----------------------------------------------------
     def _build_static(self) -> None:
@@ -405,7 +431,7 @@ class GraphView(QWidget):
             self._set_status("Режим реального времени остановлен")
 
     def _start_live(self) -> None:
-        if not self.selected_channels:
+        if not self.available_channels:
             self._load_channels()
         self._clear_plot()
         self.live_data = {
@@ -502,8 +528,9 @@ class GraphView(QWidget):
         graph_y = y + base * 3.6
         graph_h = rect.bottom() - margin - graph_y
         if pixmap is not None and not pixmap.isNull() and graph_h > 0:
+            # Fill the whole remaining sheet (100% of the page width/height).
             scaled = pixmap.scaled(
-                int(width), int(graph_h), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                int(width), int(graph_h), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
             )
             painter.drawPixmap(int(x), int(graph_y), scaled)
 

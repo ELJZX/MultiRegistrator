@@ -8,8 +8,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Iterable, Optional
 
-REPORT_TITLE = "MultiRegistrator — график"
-
 
 def build_report_lines(
     device_name: str,
@@ -18,13 +16,17 @@ def build_report_lines(
     channels: Iterable[str],
     generated: Optional[datetime] = None,
 ) -> list[str]:
-    """Return the header lines printed above the graph in the report."""
+    """Return the report header.
+
+    * line 1 — the installation (connected device) name;
+    * line 2 — period, selected channels and report generation time.
+    """
 
     channel_list = list(channels)
     generated = generated or datetime.now()
-    return [
-        f"{REPORT_TITLE}: {device_name}",
-        f"Период: {period_start:%d.%m.%Y %H:%M:%S} — {period_end:%d.%m.%Y %H:%M:%S}",
-        f"Каналы: {', '.join(channel_list) if channel_list else '(все)'}",
-        f"Дата формирования: {generated:%d.%m.%Y %H:%M:%S}",
-    ]
+    info = (
+        f"Период: {period_start:%d.%m.%Y %H:%M:%S} — {period_end:%d.%m.%Y %H:%M:%S}   |   "
+        f"Каналы: {', '.join(channel_list) if channel_list else '(все)'}   |   "
+        f"Дата формирования: {generated:%d.%m.%Y %H:%M:%S}"
+    )
+    return [f"Название установки: {device_name}", info]
