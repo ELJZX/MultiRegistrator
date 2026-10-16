@@ -219,6 +219,38 @@ def _live_mode_button():
     view.stop()
 
 
+@check("client selection survives refresh")
+def _client_selection_survives_refresh():
+    window = ClientMainWindow(ClientConfig(settings=ClientSettings(connection_name="Сервер")))
+    try:
+        assert window.info_title.text() == "Выберите устройство из списка"
+        assert window.info_connect_button.isHidden() is True
+
+        window.devices = [
+            {
+                "config": {
+                    "id": "d1", "name": "Dev", "host": "127.0.0.1",
+                    "port": 502, "device_id": 1, "registers": [],
+                },
+                "status": {"online": True},
+            }
+        ]
+        window._tree_signature = None
+        window._rebuild_tree()
+        assert window.tree.topLevelItemCount() == 1
+
+        window.tree.setCurrentItem(window.tree.topLevelItem(0))
+        assert window._selected_id == "d1"
+        assert window.info_connect_button.isHidden() is False
+
+        # A periodic refresh (same data) must keep the selection and the button.
+        window._rebuild_tree()
+        assert window._selected_id == "d1"
+        assert window.info_connect_button.isHidden() is False
+    finally:
+        window.close()
+
+
 @check("client single-window navigation")
 def _client_navigation():
     config = ClientConfig(settings=ClientSettings(connection_name="Сервер"))

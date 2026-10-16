@@ -42,6 +42,7 @@ class ClientMainWindow(QMainWindow):
         self.api: Optional[ServerApiClient] = None
         self.devices: list[dict] = []
         self._selected_id: Optional[str] = None
+        self._tree_signature: Optional[list] = None
 
         self.refresh_timer = QTimer(self)
         self.refresh_timer.setInterval(2000)
@@ -71,7 +72,7 @@ class ClientMainWindow(QMainWindow):
 
         self.info = QWidget()
         self.info_layout = QVBoxLayout(self.info)
-        self.info_title = QLabel("<b>Устройства</b>")
+        self.info_title = QLabel("Выберите устройство из списка")
         self.info_form = QFormLayout()
         self.info_connect_button = QPushButton("Подключиться")
         self.info_connect_button.clicked.connect(self._open_selected_device)
@@ -184,6 +185,7 @@ class ClientMainWindow(QMainWindow):
             self.api = None
         self.devices = []
         self._selected_id = None
+        self._tree_signature = None
         self.tree.clear()
         self.connect_action.setEnabled(True)
         self.disconnect_action.setEnabled(False)
@@ -201,6 +203,17 @@ class ClientMainWindow(QMainWindow):
         self._rebuild_tree()
 
     def _rebuild_tree(self) -> None:
+        signature = [
+            (entry["config"]["id"], entry["config"]["name"], bool(entry["status"].get("online")))
+            for entry in self.devices
+        ]
+        if signature == self._tree_signature:
+            return  # nothing changed visually - keep the current selection
+        self._tree_signature = signature
+
+        # Rebuilding must not clear the selection (otherwise the info panel and
+        # the "Подключиться" button would disappear on every refresh).
+        self.tree.blockSignals(True)
         self.tree.clear()
         selected_item: Optional[QTreeWidgetItem] = None
         for entry in self.devices:
@@ -215,6 +228,8 @@ class ClientMainWindow(QMainWindow):
                 selected_item = item
         if selected_item is not None:
             self.tree.setCurrentItem(selected_item)
+        self.tree.blockSignals(False)
+        self._show_info()
 
     def _selected_entry(self) -> Optional[dict]:
         item = self.tree.currentItem()
@@ -228,7 +243,7 @@ class ClientMainWindow(QMainWindow):
         entry = self._selected_entry()
         if entry is None:
             self._selected_id = None
-            self.info_title.setText("<b>Устройства</b>")
+            self.info_title.setText("Выберите устройство из списка")
             self.info_connect_button.setVisible(False)
             return
 
