@@ -38,6 +38,7 @@ class ClientMainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"MultiRegistrator — Клиент {__version__}")
         self.resize(1040, 620)
+        self.setMinimumSize(900, 560)
         self.config = config or load_client_config()
         self.api: Optional[ServerApiClient] = None
         self.devices: list[dict] = []
@@ -65,9 +66,12 @@ class ClientMainWindow(QMainWindow):
 
     def _build_list_page(self) -> QWidget:
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Устройства"])
+        self.tree.setHeaderLabels(["Устройства:"])
         self.tree.setRootIsDecorated(False)
         self.tree.setStyleSheet(TREE_STYLE)
+        header_font = self.tree.headerItem().font(0)
+        header_font.setBold(True)
+        self.tree.headerItem().setFont(0, header_font)
         self.tree.currentItemChanged.connect(lambda *_: self._show_info())
 
         self.info = QWidget()
@@ -96,7 +100,7 @@ class ClientMainWindow(QMainWindow):
         self.disconnect_action.setEnabled(False)
         self.settings_action = QAction("Настройка соединения", self)
         self.settings_action.triggered.connect(self._open_settings)
-        self.back_action = QAction("Назад к списку устройств", self)
+        self.back_action = QAction("← Вернуться к выбору устройства", self)
         self.back_action.triggered.connect(self._show_list)
         self.back_action.setVisible(False)
         self.back_action.setEnabled(False)
@@ -184,9 +188,9 @@ class ClientMainWindow(QMainWindow):
             self.api.close()
             self.api = None
         self.devices = []
-        self._selected_id = None
         self._tree_signature = None
         self.tree.clear()
+        self._reset_info()
         self.connect_action.setEnabled(True)
         self.disconnect_action.setEnabled(False)
         self.statusBar().showMessage("Не подключено")
@@ -238,15 +242,16 @@ class ClientMainWindow(QMainWindow):
         return {"config": item.data(0, Qt.UserRole), "status": item.data(0, Qt.UserRole + 1)}
 
     def _show_info(self) -> None:
-        while self.info_form.rowCount():
-            self.info_form.removeRow(0)
         entry = self._selected_entry()
         if entry is None:
-            self._selected_id = None
-            self.info_title.setText("Выберите устройство из списка")
-            self.info_connect_button.setVisible(False)
+            # Clicking an empty area of the list must NOT clear the info panel:
+            # restore the previously selected device instead.
+            if self._selected_id is not None:
+                self._reselect_item(self._selected_id)
             return
 
+        while self.info_form.rowCount():
+            self.info_form.removeRow(0)
         config = entry["config"]
         status = entry["status"]
         self._selected_id = config["id"]
@@ -262,6 +267,23 @@ class ClientMainWindow(QMainWindow):
         if unavailable:
             self.info_form.addRow("Недоступны", QLabel(", ".join(unavailable)))
         self.info_connect_button.setVisible(True)
+
+    def _reselect_item(self, device_id: str) -> None:
+        for index in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(index)
+            config = item.data(0, Qt.UserRole)
+            if config is not None and config.get("id") == device_id:
+                self.tree.blockSignals(True)
+                self.tree.setCurrentItem(item)
+                self.tree.blockSignals(False)
+                return
+
+    def _reset_info(self) -> None:
+        while self.info_form.rowCount():
+            self.info_form.removeRow(0)
+        self._selected_id = None
+        self.info_title.setText("Выберите устройство из списка")
+        self.info_connect_button.setVisible(False)
 
     def _open_selected_device(self) -> None:
         entry = self._selected_entry()

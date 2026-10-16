@@ -28,7 +28,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDateTimeEdit,
     QFileDialog,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -56,8 +55,8 @@ LIVE_WINDOW_SECONDS = 120.0
 LIVE_RIGHT_MARGIN = 0.2
 GRID_ALPHA = 0.3
 
-LIVE_ON_STYLE = "background-color:#2e8b57; color:white; font-weight:bold;"
-LIVE_OFF_STYLE = "background-color:#c8c8c8; color:#303030;"
+LIVE_ON_STYLE = "color:#1e7d32; font-weight:bold;"
+LIVE_OFF_STYLE = "color:#555555;"
 
 HTML_SEPARATOR = "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;"
 
@@ -166,40 +165,34 @@ class GraphView(QWidget):
         self.build_button.clicked.connect(self._build_static)
         panel_layout.addWidget(self.build_button)
 
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        panel_layout.addWidget(separator)
-
-        self.live_button = QPushButton("Режим реального времени")
-        self.live_button.setCheckable(True)
+        # "Настройки": the same check-box style as the "Каналы" block.
+        self.settings_box = QGroupBox("Настройки")
+        settings_layout = QVBoxLayout(self.settings_box)
+        self.live_button = QCheckBox("Режим реального времени")
         self.live_button.setToolTip(
             "Зелёный — обновляется в реальном времени, серый — статичный график"
         )
         self.live_button.toggled.connect(self._on_live_toggled)
-        panel_layout.addWidget(self.live_button)
-
-        self.autoscale_button = QPushButton("Автомасштаб")
-        self.autoscale_button.setCheckable(True)
+        settings_layout.addWidget(self.live_button)
+        self.autoscale_button = QCheckBox("Автомасштаб")
         self.autoscale_button.setToolTip("Автоматически масштабировать график")
         self.autoscale_button.toggled.connect(self._on_autoscale_toggled)
-        panel_layout.addWidget(self.autoscale_button)
-
-        self.grid_button = QPushButton("Убрать сетку")
-        self.grid_button.setCheckable(True)
-        self.grid_button.setToolTip(
-            "Скрыть координатную сетку — останутся только оси и график"
-        )
+        settings_layout.addWidget(self.autoscale_button)
+        self.grid_button = QCheckBox("Убрать сетку")
+        self.grid_button.setToolTip("Скрыть координатную сетку — останутся только оси и график")
         self.grid_button.toggled.connect(self._on_grid_toggled)
-        panel_layout.addWidget(self.grid_button)
+        settings_layout.addWidget(self.grid_button)
+        panel_layout.addWidget(self.settings_box)
 
+        self.print_box = QGroupBox("Печать")
+        print_layout = QVBoxLayout(self.print_box)
         self.pdf_button = QPushButton("Сохранить график в PDF")
         self.pdf_button.clicked.connect(self._save_pdf)
-        panel_layout.addWidget(self.pdf_button)
-
+        print_layout.addWidget(self.pdf_button)
         self.print_button = QPushButton("Печать")
         self.print_button.clicked.connect(self._print_preview)
-        panel_layout.addWidget(self.print_button)
+        print_layout.addWidget(self.print_button)
+        panel_layout.addWidget(self.print_box)
 
         panel_layout.addStretch(1)
 
@@ -302,11 +295,12 @@ class GraphView(QWidget):
             self.selected_channels.remove(channel)
 
         if self.live_mode:
+            # Keep collecting data for hidden channels so that re-enabling a
+            # channel restores its graph from the moment the device was opened.
             if checked:
                 self._add_live_curve(channel)
             else:
                 self._remove_curve(channel)
-                self.live_data.pop(channel, None)
         elif self._static_built:
             if checked:
                 self._add_static_curve(channel)
@@ -323,10 +317,19 @@ class GraphView(QWidget):
     def _add_live_curve(self, channel: str) -> None:
         if channel in self.curves:
             return
-        self.live_data[channel] = (deque(maxlen=MAX_LIVE_POINTS), deque(maxlen=MAX_LIVE_POINTS))
-        self.curves[channel] = self.plot.plot(
+        if channel not in self.live_data:
+            self.live_data[channel] = (
+                deque(maxlen=MAX_LIVE_POINTS),
+                deque(maxlen=MAX_LIVE_POINTS),
+            )
+        curve = self.plot.plot(
             [], [], pen=pg.mkPen(self._color_for(channel), width=1.6), name=channel
         )
+        self.curves[channel] = curve
+        # Draw the history collected while the channel was hidden.
+        times, values = self.live_data[channel]
+        if times:
+            curve.setData(list(times), list(values))
 
     def _add_static_curve(self, channel: str) -> None:
         if channel in self.curves or channel not in self.static_data:

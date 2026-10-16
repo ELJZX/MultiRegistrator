@@ -15,6 +15,7 @@ import traceback
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QModelIndex
 from PySide6.QtWidgets import QApplication
 
 from multiregistrator.client.api_client import ServerApiClient
@@ -158,19 +159,47 @@ def _graph_channels():
         assert view.live_mode is True
         assert set(view.curves) == {"temperature", "humidity", "relay"}
 
-        # Removing a channel must not reset the other curves' data.
-        view._poll_live()
-        temperature_points = len(view.live_data["temperature"][0])
-        assert temperature_points >= 1
+        baseline = len(view.live_data["humidity"][0])
+        for _ in range(3):
+            view._poll_live()
+        assert len(view.live_data["temperature"][0]) == baseline + 3
 
+        # Removing a channel keeps the other curves and keeps collecting data
+        # for the hidden channel (so it can be restored later).
         view.channel_checks["humidity"].setChecked(False)
         assert "humidity" not in view.selected_channels
         assert "humidity" not in view.curves
-        assert len(view.live_data["temperature"][0]) >= temperature_points
+        for _ in range(2):
+            view._poll_live()
+        hidden_len = len(view.live_data["humidity"][0])
+        assert hidden_len == baseline + 5
 
+        # Re-adding restores the graph from the very beginning.
         view.channel_checks["humidity"].setChecked(True)
         assert "humidity" in view.selected_channels
         assert "humidity" in view.curves
+        times, _values = view.curves["humidity"].getData()
+        assert len(times) == hidden_len
+    finally:
+        view.stop()
+
+
+@check("graph settings and print blocks")
+def _graph_blocks():
+    from PySide6.QtWidgets import QCheckBox
+
+    view = GraphView()
+    try:
+        assert view.settings_box.title() == "Настройки"
+        assert view.print_box.title() == "Печать"
+        assert isinstance(view.live_button, QCheckBox)
+        assert isinstance(view.autoscale_button, QCheckBox)
+        assert isinstance(view.grid_button, QCheckBox)
+        assert view.live_button.parent() is view.settings_box
+        assert view.autoscale_button.parent() is view.settings_box
+        assert view.grid_button.parent() is view.settings_box
+        assert view.pdf_button.parent() is view.print_box
+        assert view.print_button.parent() is view.print_box
     finally:
         view.stop()
 
@@ -210,12 +239,12 @@ def _live_mode_button():
     view.set_device(None, "d1", "Test")
     assert view.live_button.text() == "Режим реального времени"
     assert view.live_button.isChecked() is False
-    assert "#c8c8c8" in view.live_button.styleSheet()
+    assert "#555555" in view.live_button.styleSheet()
     view.live_button.setChecked(True)
     assert view.live_button.isChecked() is True
-    assert "#2e8b57" in view.live_button.styleSheet()
+    assert "#1e7d32" in view.live_button.styleSheet()
     view.live_button.setChecked(False)
-    assert "#c8c8c8" in view.live_button.styleSheet()
+    assert "#555555" in view.live_button.styleSheet()
     view.stop()
 
 
@@ -247,6 +276,11 @@ def _client_selection_survives_refresh():
         window._rebuild_tree()
         assert window._selected_id == "d1"
         assert window.info_connect_button.isHidden() is False
+
+        # Clicking an empty area of the list must not clear the info panel.
+        window.tree.setCurrentIndex(QModelIndex())
+        assert window._selected_id == "d1"
+        assert window.info_connect_button.isHidden() is False
     finally:
         window.close()
 
@@ -256,6 +290,8 @@ def _client_navigation():
     config = ClientConfig(settings=ClientSettings(connection_name="Сервер"))
     window = ClientMainWindow(config)
     assert window.back_action.isEnabled() is False
+    assert window.back_action.text() == "← Вернуться к выбору устройства"
+    assert window.tree.headerItem().text(0) == "Устройства:"
     assert window.stack.currentIndex() == 0
     window._show_graph({"id": "d1", "name": "Test"})
     assert window.stack.currentWidget() is window.graph_view
