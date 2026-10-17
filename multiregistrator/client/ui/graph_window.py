@@ -234,12 +234,10 @@ class GraphView(QWidget):
         self._point_marker.setVisible(False)
         self.plot.addItem(self._point_marker)
 
-        # Hover is tracked both through the viewport event filter and the scene
-        # signal, so it works regardless of the Qt/pyqtgraph build.
+        # The data tooltip is driven by the right mouse button (press & hold).
         self.plot.viewport().setMouseTracking(True)
         self.plot.setMouseTracking(True)
         self.plot.viewport().installEventFilter(self)
-        self.plot.scene().sigMouseMoved.connect(self._on_scene_mouse_moved)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(panel)
@@ -295,54 +293,33 @@ class GraphView(QWidget):
     def eventFilter(self, obj, event):  # noqa: N802 - Qt naming
         if obj is self.plot.viewport():
             event_type = event.type()
-            # Right click shows the data point at that position and never opens
-            # a context menu.
+            # Never open a context menu.
             if event_type == QEvent.ContextMenu:
                 return True
             if event_type == QEvent.MouseButtonPress and event.button() == Qt.RightButton:
                 self._show_data_point(self.plot.mapToScene(event.position().toPoint()))
                 return True
             if event_type == QEvent.MouseButtonRelease and event.button() == Qt.RightButton:
+                self._hide_overlay()
                 return True
             if event_type == QEvent.MouseMove:
-                self._update_hover(self.plot.mapToScene(event.position().toPoint()))
+                # Follow the pointer only while the right button is held.
+                if event.buttons() & Qt.RightButton:
+                    self._show_data_point(self.plot.mapToScene(event.position().toPoint()))
             elif event_type == QEvent.Leave:
-                self._cursor.setVisible(False)
+                self._hide_overlay()
         return super().eventFilter(obj, event)
 
-    def _on_scene_mouse_moved(self, scene_pos) -> None:
-        self._update_hover(scene_pos)
-
-    def _point_text(self, x: float):
-        """Return ``(reference_time, text)`` for the nearest samples at ``x``."""
-
-        entries: list[tuple[str, float, object]] = []
-        for channel, curve in self.curves.items():
-            xs, ys = curve.getData()
-            if xs is None or len(xs) == 0:
-                continue
-            index = bisect_left(xs, x)
-            candidates = [i for i in (index - 1, index) if 0 <= i < len(xs)]
-            if not candidates:
-                continue
-            best = min(candidates, key=lambda i: abs(xs[i] - x))
-            entries.append((channel, float(xs[best]), ys[best]))
-
-        if not entries:
-            return None
-
-        reference = min(entries, key=lambda item: abs(item[1] - x))
-        moment = datetime.fromtimestamp(reference[1])
-        lines = [moment.strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]]
-        for channel, _value_time, value in sorted(entries, key=lambda item: item[0]):
-            lines.append(f"{channel}: {self._format_value(value)}")
-        return reference[1], "\n".join(lines)
+    def _hide_overlay(self) -> None:
+        self._cursor.setVisible(False)
+        self._marker.setVisible(False)
+        self._point_marker.setVisible(False)
 
     def _show_data_point(self, scene_pos) -> None:
-        """Right-click action: show the exact value on the curve under the cursor.
+        """Show the value of the curve under the cursor (right button held).
 
-        The channel whose curve is closest to the clicked point is highlighted
-        (dot + first line); the remaining channels are listed below it.
+        Only the selected channel is displayed, together with the time in the
+        ``HH:MM:SS`` format.
         """
 
         if not self.curves:
@@ -372,15 +349,10 @@ class GraphView(QWidget):
             y = point.y() if value is None else float(value)
             return abs(y - point.y()) / y_span
 
-        entries.sort(key=closeness)
-        channel, reference_time, value = entries[0]
+        channel, reference_time, value = min(entries, key=closeness)
 
         moment = datetime.fromtimestamp(reference_time)
-        lines = [moment.strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]]
-        for name, _x, val in entries:
-            marker = "→ " if name == channel else "   "
-            lines.append(f"{marker}{name}: {self._format_value(val)}")
-        text = "\n".join(lines)
+        text = f"{moment:%H:%M:%S}\n{channel}: {self._format_value(value)}"
 
         self._cursor_text = text
         self._cursor.setText(text)
@@ -388,30 +360,10 @@ class GraphView(QWidget):
         self._cursor.setVisible(True)
         self._marker.setValue(reference_time)
         self._marker.setVisible(True)
-        self._point_marker.setData([reference_time], [point.y() if value is None else float(value)])
+        self._point_marker.setData(
+            [reference_time], [point.y() if value is None else float(value)]
+        )
         self._point_marker.setVisible(True)
-
-    def _update_hover(self, scene_pos) -> None:
-        """Show the nearest time/value/channel under the mouse pointer.
-
-        Hover is only shown for a static graph (not while the real-time mode is
-        running) -- use the right mouse button for the live graph.
-        """
-
-        if self.live_mode or not self.curves:
-            self._cursor.setVisible(False)
-            return
-
-        point = self.plot.getPlotItem().vb.mapSceneToView(scene_pos)
-        result = self._point_text(point.x())
-        if result is None:
-            self._cursor.setVisible(False)
-            return
-        reference_time, text = result
-        self._cursor_text = text
-        self._cursor.setText(text)
-        self._cursor.setPos(reference_time, point.y())
-        self._cursor.setVisible(True)
 
     # -- channels -----------------------------------------------------------
     def _load_channels(self) -> None:

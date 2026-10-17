@@ -188,7 +188,7 @@ def _graph_channels():
         view.stop()
 
 
-@check("graph hover tooltip")
+@check("graph right-button data tooltip")
 def _graph_tooltip():
     class FakeGraphApi:
         def channels(self, device_id):
@@ -215,36 +215,40 @@ def _graph_tooltip():
         xs, ys = view.curves["temperature"].getData()
         vb = view.plot.getPlotItem().vb
         scene_pos = vb.mapViewToScene(QPointF(float(xs[-1]), float(ys[-1])))
+        local = view.plot.mapFromScene(scene_pos)
+        viewport = view.plot.viewport()
+        point = QPointF(float(local.x()), float(local.y()))
 
-        # No hover tooltip while the real-time mode is running.
-        view._update_hover(scene_pos)
+        # A plain hover (no button) shows nothing.
+        hover = QMouseEvent(
+            QMouseEvent.MouseMove, point, Qt.NoButton, Qt.NoButton, Qt.NoModifier
+        )
+        view.eventFilter(viewport, hover)
         assert view._cursor.isVisible() is False
 
-        # Right click shows the data point (also works in real-time mode) and
-        # marks it with a vertical line, without opening a context menu.
-        local = view.plot.mapFromScene(scene_pos)
-        click = QMouseEvent(
-            QMouseEvent.MouseButtonPress,
-            QPointF(float(local.x()), float(local.y())),
-            Qt.RightButton,
-            Qt.RightButton,
-            Qt.NoModifier,
+        # Holding the right button shows only the selected channel + HH:MM:SS.
+        press = QMouseEvent(
+            QMouseEvent.MouseButtonPress, point, Qt.RightButton, Qt.RightButton, Qt.NoModifier
         )
-        view._cursor.setVisible(False)
-        consumed = view.eventFilter(view.plot.viewport(), click)
-        assert consumed is True
+        assert view.eventFilter(viewport, press) is True
         assert view._cursor.isVisible() is True
         assert view._marker.isVisible() is True
+        assert view._point_marker.isVisible() is True
         text = view._cursor_text
-        assert "temperature" in text and "relay" in text
-        assert "2026" in text
+        first_line = text.splitlines()[0]
+        assert len(first_line) == 8 and first_line.count(":") == 2
+        assert "temperature" in text
+        assert "relay" not in text
         assert "25.5" in text
 
-        # Turning the real-time mode off enables the hover tooltip as well.
-        view.live_button.setChecked(False)
-        view._cursor.setVisible(False)
-        view._update_hover(scene_pos)
-        assert view._cursor.isVisible() is True
+        # Releasing the right button hides the point and the notification.
+        release = QMouseEvent(
+            QMouseEvent.MouseButtonRelease, point, Qt.RightButton, Qt.NoButton, Qt.NoModifier
+        )
+        view.eventFilter(viewport, release)
+        assert view._cursor.isVisible() is False
+        assert view._marker.isVisible() is False
+        assert view._point_marker.isVisible() is False
     finally:
         view.stop()
 
