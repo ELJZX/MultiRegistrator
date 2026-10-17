@@ -215,7 +215,14 @@ def _graph_tooltip():
         xs, ys = view.curves["temperature"].getData()
         vb = view.plot.getPlotItem().vb
         scene_pos = vb.mapViewToScene(QPointF(float(xs[-1]), float(ys[-1])))
-        view._on_mouse_moved((scene_pos,))
+
+        # No tooltip while the real-time mode is running.
+        view._update_hover(scene_pos)
+        assert view._cursor.isVisible() is False
+
+        # Turning the real-time mode off enables the static tooltip.
+        view.live_button.setChecked(False)
+        view._update_hover(scene_pos)
         assert view._cursor.isVisible() is True
         text = view._cursor_text
         assert "temperature" in text and "relay" in text

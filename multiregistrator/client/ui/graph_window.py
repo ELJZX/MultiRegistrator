@@ -14,7 +14,7 @@ import pyqtgraph as pg
 pg.setConfigOption("background", "w")
 pg.setConfigOption("foreground", "k")
 
-from PySide6.QtCore import QDateTime, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QDateTime, QEvent, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QFont,
     QPageLayout,
@@ -214,9 +214,9 @@ class GraphView(QWidget):
         self._cursor.setZValue(1_000_001)
         self._cursor.setVisible(False)
         self.plot.addItem(self._cursor)
-        self._mouse_proxy = pg.SignalProxy(
-            self.plot.scene().sigMouseMoved, rateLimit=30, slot=self._on_mouse_moved
-        )
+        # Hover is tracked through the viewport event filter (reliable on HiDPI).
+        self.plot.viewport().setMouseTracking(True)
+        self.plot.viewport().installEventFilter(self)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(panel)
@@ -269,15 +269,26 @@ class GraphView(QWidget):
         except (TypeError, ValueError):
             return str(value)
 
-    def _on_mouse_moved(self, event) -> None:
-        """Show the nearest time/value/channel under the mouse pointer."""
+    def eventFilter(self, obj, event):  # noqa: N802 - Qt naming
+        if obj is self.plot.viewport():
+            if event.type() == QEvent.MouseMove:
+                self._update_hover(self.plot.mapToScene(event.position().toPoint()))
+            elif event.type() == QEvent.Leave:
+                self._cursor.setVisible(False)
+        return super().eventFilter(obj, event)
 
-        position = event[0] if isinstance(event, (tuple, list)) else event
-        if not self.curves or not self.plot.sceneBoundingRect().contains(position):
+    def _update_hover(self, scene_pos) -> None:
+        """Show the nearest time/value/channel under the mouse pointer.
+
+        The tooltip is only shown for a static graph (not while the real-time
+        mode is running).
+        """
+
+        if self.live_mode or not self.curves:
             self._cursor.setVisible(False)
             return
 
-        point = self.plot.getPlotItem().vb.mapSceneToView(position)
+        point = self.plot.getPlotItem().vb.mapSceneToView(scene_pos)
         entries: list[tuple[str, float, object]] = []
         for channel, curve in self.curves.items():
             xs, ys = curve.getData()
