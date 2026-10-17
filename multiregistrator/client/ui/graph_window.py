@@ -203,6 +203,10 @@ class GraphView(QWidget):
         self.plot.setMouseEnabled(x=True, y=True)
         self._style_legend()
 
+        # Disable pyqtgraph's right-click context menu (users do not need it).
+        self.plot.getPlotItem().setMenuEnabled(False)
+        self.plot.getPlotItem().vb.setMenuEnabled(False)
+
         # Hover tooltip: time + channel values under the mouse cursor.
         self._cursor_text = ""
         self._cursor = pg.TextItem(
@@ -214,9 +218,12 @@ class GraphView(QWidget):
         self._cursor.setZValue(1_000_001)
         self._cursor.setVisible(False)
         self.plot.addItem(self._cursor)
-        # Hover is tracked through the viewport event filter (reliable on HiDPI).
+        # Hover is tracked both through the viewport event filter and the scene
+        # signal, so it works regardless of the Qt/pyqtgraph build.
         self.plot.viewport().setMouseTracking(True)
+        self.plot.setMouseTracking(True)
         self.plot.viewport().installEventFilter(self)
+        self.plot.scene().sigMouseMoved.connect(self._on_scene_mouse_moved)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(panel)
@@ -276,6 +283,9 @@ class GraphView(QWidget):
             elif event.type() == QEvent.Leave:
                 self._cursor.setVisible(False)
         return super().eventFilter(obj, event)
+
+    def _on_scene_mouse_moved(self, scene_pos) -> None:
+        self._update_hover(scene_pos)
 
     def _update_hover(self, scene_pos) -> None:
         """Show the nearest time/value/channel under the mouse pointer.

@@ -228,6 +228,19 @@ def _graph_tooltip():
         assert "temperature" in text and "relay" in text
         assert "2026" in text
         assert "25.5" in text
+
+        # The viewport event filter must drive the tooltip as well.
+        local = view.plot.mapFromScene(scene_pos)
+        move = QMouseEvent(
+            QMouseEvent.MouseMove,
+            QPointF(float(local.x()), float(local.y())),
+            Qt.NoButton,
+            Qt.NoButton,
+            Qt.NoModifier,
+        )
+        view._cursor.setVisible(False)
+        view.eventFilter(view.plot.viewport(), move)
+        assert view._cursor.isVisible() is True
     finally:
         view.stop()
 
@@ -263,6 +276,7 @@ def _graph_window():
     assert view.plot.backgroundBrush().color().name() == "#ffffff"
     assert view.autoscale_button.text() == "Автомасштаб"
     assert view.autoscale_button.isCheckable() is True
+    assert view.plot.getPlotItem().menuEnabled() is False
     view.autoscale_button.setChecked(True)
     assert all(view.plot.getViewBox().autoRangeEnabled())
     view.autoscale_button.setChecked(False)
