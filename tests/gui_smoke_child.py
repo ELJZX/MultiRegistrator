@@ -216,30 +216,34 @@ def _graph_tooltip():
         vb = view.plot.getPlotItem().vb
         scene_pos = vb.mapViewToScene(QPointF(float(xs[-1]), float(ys[-1])))
 
-        # No tooltip while the real-time mode is running.
+        # No hover tooltip while the real-time mode is running.
         view._update_hover(scene_pos)
         assert view._cursor.isVisible() is False
 
-        # Turning the real-time mode off enables the static tooltip.
-        view.live_button.setChecked(False)
-        view._update_hover(scene_pos)
+        # Right click shows the data point (also works in real-time mode) and
+        # marks it with a vertical line, without opening a context menu.
+        local = view.plot.mapFromScene(scene_pos)
+        click = QMouseEvent(
+            QMouseEvent.MouseButtonPress,
+            QPointF(float(local.x()), float(local.y())),
+            Qt.RightButton,
+            Qt.RightButton,
+            Qt.NoModifier,
+        )
+        view._cursor.setVisible(False)
+        consumed = view.eventFilter(view.plot.viewport(), click)
+        assert consumed is True
         assert view._cursor.isVisible() is True
+        assert view._marker.isVisible() is True
         text = view._cursor_text
         assert "temperature" in text and "relay" in text
         assert "2026" in text
         assert "25.5" in text
 
-        # The viewport event filter must drive the tooltip as well.
-        local = view.plot.mapFromScene(scene_pos)
-        move = QMouseEvent(
-            QMouseEvent.MouseMove,
-            QPointF(float(local.x()), float(local.y())),
-            Qt.NoButton,
-            Qt.NoButton,
-            Qt.NoModifier,
-        )
+        # Turning the real-time mode off enables the hover tooltip as well.
+        view.live_button.setChecked(False)
         view._cursor.setVisible(False)
-        view.eventFilter(view.plot.viewport(), move)
+        view._update_hover(scene_pos)
         assert view._cursor.isVisible() is True
     finally:
         view.stop()
