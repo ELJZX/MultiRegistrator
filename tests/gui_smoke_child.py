@@ -15,7 +15,8 @@ import traceback
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QModelIndex
+from PySide6.QtCore import QModelIndex, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication
 
 from multiregistrator.client.api_client import ServerApiClient
@@ -55,7 +56,10 @@ def check(name):
 @check("server window")
 def _server_window():
     window = ServerMainWindow(server_config())
+    # Flat device list (no "Сеть" / "Сервер" nodes).
     assert window.tree.topLevelItemCount() == 1
+    assert window.tree.topLevelItem(0).text(0) == "Tewes-Bis Цех №1"
+    assert window.tree.topLevelItem(0).childCount() == 0
     assert window.table.rowCount() == 1
     assert window.stop_action.isEnabled() is False
     assert window._unique_id("d1") == "d1-2"
@@ -236,12 +240,12 @@ def _live_mode_button():
     view.set_device(None, "d1", "Test")
     assert view.live_button.text() == "Режим реального времени"
     assert view.live_button.isChecked() is False
-    assert "#555555" in view.live_button.styleSheet()
+    assert view.live_button.styleSheet() == ""
     view.live_button.setChecked(True)
     assert view.live_button.isChecked() is True
-    assert "#1e7d32" in view.live_button.styleSheet()
+    assert view.live_button.styleSheet() == ""
     view.live_button.setChecked(False)
-    assert "#555555" in view.live_button.styleSheet()
+    assert view.live_button.isChecked() is False
     view.stop()
 
 
@@ -274,8 +278,16 @@ def _client_selection_survives_refresh():
         assert window._selected_id == "d1"
         assert window.info_connect_button.isHidden() is False
 
-        # Clicking an empty area of the list clears the selection.
-        window.tree.setCurrentIndex(QModelIndex())
+        # Clicking an empty area of the list (below the items) clears the
+        # selection via the viewport event filter.
+        click = QMouseEvent(
+            QMouseEvent.MouseButtonPress,
+            QPointF(10, 300),
+            Qt.LeftButton,
+            Qt.LeftButton,
+            Qt.NoModifier,
+        )
+        QApplication.sendEvent(window.tree.viewport(), click)
         assert window._selected_id is None
         assert window.info_connect_button.isHidden() is True
         assert window.info_title.text() == "Выберите устройство из списка"

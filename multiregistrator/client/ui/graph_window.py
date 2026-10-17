@@ -55,9 +55,6 @@ LIVE_WINDOW_SECONDS = 120.0
 LIVE_RIGHT_MARGIN = 0.2
 GRID_ALPHA = 0.3
 
-LIVE_ON_STYLE = "color:#1e7d32; font-weight:bold;"
-LIVE_OFF_STYLE = "color:#555555;"
-
 HTML_SEPARATOR = "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;"
 
 
@@ -213,8 +210,6 @@ class GraphView(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
-
-        self._update_live_style()
 
     def _style_legend(self) -> None:
         if self._legend is None:
@@ -418,11 +413,6 @@ class GraphView(QWidget):
         self.plot.getPlotItem().showGrid(x=not checked, y=not checked, alpha=GRID_ALPHA)
 
     # -- live mode ----------------------------------------------------------
-    def _update_live_style(self) -> None:
-        self.live_button.setStyleSheet(
-            LIVE_ON_STYLE if self.live_button.isChecked() else LIVE_OFF_STYLE
-        )
-
     def _deactivate_live(self) -> None:
         self.live_timer.stop()
         self.live_mode = False
@@ -430,7 +420,6 @@ class GraphView(QWidget):
             self.live_button.blockSignals(True)
             self.live_button.setChecked(False)
             self.live_button.blockSignals(False)
-        self._update_live_style()
 
     def _on_live_toggled(self, checked: bool) -> None:
         if checked and self._static_built:
@@ -444,9 +433,7 @@ class GraphView(QWidget):
                 self.live_button.blockSignals(True)
                 self.live_button.setChecked(False)
                 self.live_button.blockSignals(False)
-                self._update_live_style()
                 return
-        self._update_live_style()
         if checked:
             self._start_live()
         else:

@@ -150,16 +150,11 @@ class ServerMainWindow(QMainWindow):
     def _refresh_devices(self) -> None:
         self._device_map = {device.id: device for device in self.config.devices}
         self.tree.clear()
-        root = QTreeWidgetItem(["Сеть"])
-        server_item = QTreeWidgetItem(["Сервер"])
-        root.addChild(server_item)
+        # Flat list: only the configured devices (no "Сеть" / "Сервер" nodes).
         for device in self.config.devices:
             item = QTreeWidgetItem([device.name])
             item.setData(0, Qt.UserRole, device.id)
-            server_item.addChild(item)
-        self.tree.addTopLevelItem(root)
-        root.setExpanded(True)
-        server_item.setExpanded(True)
+            self.tree.addTopLevelItem(item)
 
         self.table.setRowCount(len(self.config.devices))
         for row, device in enumerate(self.config.devices):
@@ -172,9 +167,8 @@ class ServerMainWindow(QMainWindow):
         self._refresh_colors()
 
     def _refresh_colors(self) -> None:
-        server_item = self.tree.topLevelItem(0).child(0)
-        for index in range(server_item.childCount()):
-            item = server_item.child(index)
+        for index in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(index)
             device_id = item.data(0, Qt.UserRole)
             status = self._statuses.get(device_id)
             device = self._device_by_id(device_id)
@@ -221,11 +215,10 @@ class ServerMainWindow(QMainWindow):
 
     def _selected_device_id(self) -> Optional[str]:
         item = self.tree.currentItem()
-        while item is not None:
+        if item is not None:
             device_id = item.data(0, Qt.UserRole)
-            if device_id is not None and item.parent() is not None and item.parent().parent() is not None:
+            if device_id is not None:
                 return device_id
-            item = item.parent()
         row = self.table.currentRow()
         if 0 <= row < len(self.config.devices):
             return self.config.devices[row].id

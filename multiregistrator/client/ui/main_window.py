@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, QModelIndex, Qt, QTimer
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -73,6 +73,7 @@ class ClientMainWindow(QMainWindow):
         header_font.setBold(True)
         self.tree.headerItem().setFont(0, header_font)
         self.tree.currentItemChanged.connect(lambda *_: self._show_info())
+        self.tree.viewport().installEventFilter(self)
 
         self.info = QWidget()
         self.info_layout = QVBoxLayout(self.info)
@@ -125,6 +126,14 @@ class ClientMainWindow(QMainWindow):
         self.back_action.setVisible(on_graph)
         self.back_action.setEnabled(on_graph)
 
+    def eventFilter(self, obj, event):  # noqa: N802 - Qt naming
+        # Clicking an empty area of the device list clears the selection.
+        if obj is self.tree.viewport() and event.type() == QEvent.MouseButtonPress:
+            if not self.tree.indexAt(event.position().toPoint()).isValid():
+                self.tree.clearSelection()
+                self.tree.setCurrentIndex(QModelIndex())
+        return super().eventFilter(obj, event)
+
     # -- pages --------------------------------------------------------------
     def _show_graph(self, config: dict) -> None:
         self.graph_view.set_device(self.api, config["id"], config["name"])
@@ -166,9 +175,8 @@ class ClientMainWindow(QMainWindow):
             QMessageBox.critical(
                 self,
                 "Ошибка подключения",
-                f"{exc}\n\nПроверьте, что сервер запущен и адрес/порт "
-                f"({settings.server_host}:{settings.server_port}) заданы верно. "
-                f"Изменить можно в меню «Настройка соединения».",
+                "Ошибка подключения к серверу. Сервер недоступен. "
+                "Обратитесь к разработчику программного обеспечения.",
             )
             return
         self.api = api
