@@ -226,6 +226,14 @@ class GraphView(QWidget):
         self._marker.setVisible(False)
         self.plot.addItem(self._marker)
 
+        # Dot marking the exact selected sample on its curve.
+        self._point_marker = pg.ScatterPlotItem(
+            size=11, brush=pg.mkBrush(200, 0, 0, 220), pen=pg.mkPen(255, 255, 255)
+        )
+        self._point_marker.setZValue(1_000_000)
+        self._point_marker.setVisible(False)
+        self.plot.addItem(self._point_marker)
+
         # Hover is tracked both through the viewport event filter and the scene
         # signal, so it works regardless of the Qt/pyqtgraph build.
         self.plot.viewport().setMouseTracking(True)
@@ -331,21 +339,57 @@ class GraphView(QWidget):
         return reference[1], "\n".join(lines)
 
     def _show_data_point(self, scene_pos) -> None:
-        """Right-click action: show the data point and mark it with a line."""
+        """Right-click action: show the exact value on the curve under the cursor.
+
+        The channel whose curve is closest to the clicked point is highlighted
+        (dot + first line); the remaining channels are listed below it.
+        """
 
         if not self.curves:
             return
-        point = self.plot.getPlotItem().vb.mapSceneToView(scene_pos)
-        result = self._point_text(point.x())
-        if result is None:
+        vb = self.plot.getPlotItem().vb
+        point = vb.mapSceneToView(scene_pos)
+
+        entries: list[tuple[str, float, object]] = []
+        for channel, curve in self.curves.items():
+            xs, ys = curve.getData()
+            if xs is None or len(xs) == 0:
+                continue
+            index = bisect_left(xs, point.x())
+            candidates = [i for i in (index - 1, index) if 0 <= i < len(xs)]
+            if not candidates:
+                continue
+            best = min(candidates, key=lambda i: abs(xs[i] - point.x()))
+            entries.append((channel, float(xs[best]), ys[best]))
+        if not entries:
             return
-        reference_time, text = result
+
+        y_min, y_max = vb.viewRange()[1]
+        y_span = (y_max - y_min) or 1.0
+
+        def closeness(entry):
+            value = entry[2]
+            y = point.y() if value is None else float(value)
+            return abs(y - point.y()) / y_span
+
+        entries.sort(key=closeness)
+        channel, reference_time, value = entries[0]
+
+        moment = datetime.fromtimestamp(reference_time)
+        lines = [moment.strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]]
+        for name, _x, val in entries:
+            marker = "→ " if name == channel else "   "
+            lines.append(f"{marker}{name}: {self._format_value(val)}")
+        text = "\n".join(lines)
+
         self._cursor_text = text
         self._cursor.setText(text)
         self._cursor.setPos(reference_time, point.y())
         self._cursor.setVisible(True)
         self._marker.setValue(reference_time)
         self._marker.setVisible(True)
+        self._point_marker.setData([reference_time], [point.y() if value is None else float(value)])
+        self._point_marker.setVisible(True)
 
     def _update_hover(self, scene_pos) -> None:
         """Show the nearest time/value/channel under the mouse pointer.
@@ -501,7 +545,11 @@ class GraphView(QWidget):
         )
 
     def _clear_plot(self) -> None:
-        self.plot.clear()
+        # Remove only the data curves -- the overlay items (tooltip, marker,
+        # legend) must stay in the plot, otherwise PlotWidget.clear() would
+        # drop them and the tooltip would never appear again.
+        for curve in self.curves.values():
+            self.plot.removeItem(curve)
         self.curves.clear()
         self.static_data = {}
         if self._legend is not None:
@@ -509,6 +557,7 @@ class GraphView(QWidget):
         self._style_legend()
         self._cursor.setVisible(False)
         self._marker.setVisible(False)
+        self._point_marker.setVisible(False)
 
     def _apply_time_window(self, start: datetime, end: datetime) -> None:
         view_start = clamp_period_start(start, end)

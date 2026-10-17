@@ -20,6 +20,7 @@ htmlcov/
 /config/*.json
 /*.exe
 /*.spec
+/*.png
 *.log
 
 .idea/
