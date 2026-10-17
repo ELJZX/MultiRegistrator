@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
 from collections import deque
 from datetime import datetime
 from html import escape
@@ -202,6 +203,21 @@ class GraphView(QWidget):
         self.plot.setMouseEnabled(x=True, y=True)
         self._style_legend()
 
+        # Hover tooltip: time + channel values under the mouse cursor.
+        self._cursor_text = ""
+        self._cursor = pg.TextItem(
+            color="#000000",
+            anchor=(0.0, 1.0),
+            border=pg.mkPen(120, 120, 120),
+            fill=pg.mkBrush(255, 255, 255, 235),
+        )
+        self._cursor.setZValue(1_000_001)
+        self._cursor.setVisible(False)
+        self.plot.addItem(self._cursor)
+        self._mouse_proxy = pg.SignalProxy(
+            self.plot.scene().sigMouseMoved, rateLimit=30, slot=self._on_mouse_moved
+        )
+
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(panel)
         splitter.addWidget(self.plot)
@@ -242,6 +258,52 @@ class GraphView(QWidget):
                 self._start_live()
         else:
             self._rebuild_channel_checks()
+
+    # -- hover tooltip ------------------------------------------------------
+    @staticmethod
+    def _format_value(value) -> str:
+        if value is None:
+            return "—"
+        try:
+            return f"{float(value):.4g}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _on_mouse_moved(self, event) -> None:
+        """Show the nearest time/value/channel under the mouse pointer."""
+
+        position = event[0] if isinstance(event, (tuple, list)) else event
+        if not self.curves or not self.plot.sceneBoundingRect().contains(position):
+            self._cursor.setVisible(False)
+            return
+
+        point = self.plot.getPlotItem().vb.mapSceneToView(position)
+        entries: list[tuple[str, float, object]] = []
+        for channel, curve in self.curves.items():
+            xs, ys = curve.getData()
+            if xs is None or len(xs) == 0:
+                continue
+            index = bisect_left(xs, point.x())
+            candidates = [i for i in (index - 1, index) if 0 <= i < len(xs)]
+            if not candidates:
+                continue
+            best = min(candidates, key=lambda i: abs(xs[i] - point.x()))
+            entries.append((channel, float(xs[best]), ys[best]))
+
+        if not entries:
+            self._cursor.setVisible(False)
+            return
+
+        reference = min(entries, key=lambda item: abs(item[1] - point.x()))
+        moment = datetime.fromtimestamp(reference[1])
+        lines = [moment.strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]]
+        for channel, _x, value in sorted(entries, key=lambda item: item[0]):
+            lines.append(f"{channel}: {self._format_value(value)}")
+
+        self._cursor_text = "\n".join(lines)
+        self._cursor.setText(self._cursor_text)
+        self._cursor.setPos(reference[1], point.y())
+        self._cursor.setVisible(True)
 
     # -- channels -----------------------------------------------------------
     def _load_channels(self) -> None:
@@ -381,6 +443,7 @@ class GraphView(QWidget):
         if self._legend is not None:
             self._legend.clear()
         self._style_legend()
+        self._cursor.setVisible(False)
 
     def _apply_time_window(self, start: datetime, end: datetime) -> None:
         view_start = clamp_period_start(start, end)

@@ -188,6 +188,43 @@ def _graph_channels():
         view.stop()
 
 
+@check("graph hover tooltip")
+def _graph_tooltip():
+    class FakeGraphApi:
+        def channels(self, device_id):
+            return ["temperature", "relay"]
+
+        def latest(self, device_id):
+            return {
+                "online": True,
+                "last_success": "2026-10-16T21:00:05.123000",
+                "values": {"temperature": 25.5, "relay": 1.0},
+            }
+
+        def data(self, device_id, start, end, channels=None):
+            return {}
+
+        def close(self):
+            pass
+
+    view = GraphView()
+    view.set_device(FakeGraphApi(), "d1", "Test")
+    try:
+        for _ in range(3):
+            view._poll_live()
+        xs, ys = view.curves["temperature"].getData()
+        vb = view.plot.getPlotItem().vb
+        scene_pos = vb.mapViewToScene(QPointF(float(xs[-1]), float(ys[-1])))
+        view._on_mouse_moved((scene_pos,))
+        assert view._cursor.isVisible() is True
+        text = view._cursor_text
+        assert "temperature" in text and "relay" in text
+        assert "2026" in text
+        assert "25.5" in text
+    finally:
+        view.stop()
+
+
 @check("graph settings and print blocks")
 def _graph_blocks():
     from PySide6.QtWidgets import QCheckBox
