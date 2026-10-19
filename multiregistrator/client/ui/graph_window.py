@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...common.models import TimeSeries
-from ...common.plotting import clamp_period_start, with_margin
+from ...common.plotting import axis_tick_text, clamp_period_start, with_margin
 from ...common.report import build_report_fields, format_report_line
 from ..api_client import ServerApiClient, ServerApiError
 
@@ -88,19 +88,8 @@ class TimeAxisItem(pg.DateAxisItem):
         return [(step, ticks)]
 
     def tickStrings(self, values, scale, spacing):
-        if spacing < 60:
-            fmt = "%H:%M:%S"
-        elif spacing < 86400:
-            fmt = "%H:%M"
-        else:
-            fmt = "%d.%m.%Y"
-        result = []
-        for value in values:
-            try:
-                result.append(datetime.fromtimestamp(float(value)).strftime(fmt))
-            except (OverflowError, OSError, ValueError):
-                result.append("")
-        return result
+        # Time on top, date below it (also for multi-day ranges).
+        return [axis_tick_text(value, spacing) for value in values]
 
 
 class GraphView(QWidget):
@@ -194,10 +183,13 @@ class GraphView(QWidget):
 
         panel_layout.addStretch(1)
 
-        self.plot = pg.PlotWidget(axisItems={"bottom": TimeAxisItem(orientation="bottom")})
+        time_axis = TimeAxisItem(orientation="bottom")
+        time_axis.setHeight(62)
+        time_axis.setStyle(tickTextHeight=38, tickTextOffset=6)
+        self.plot = pg.PlotWidget(axisItems={"bottom": time_axis})
         self.plot.setBackground("w")
         self.plot.showGrid(x=True, y=True, alpha=GRID_ALPHA)
-        self.plot.setLabel("bottom", "Время")
+        self.plot.setLabel("bottom", "Время / дата")
         self.plot.setLabel("left", "Значение")
         self._legend = self.plot.addLegend(offset=(10, 10))
         self.plot.setMouseEnabled(x=True, y=True)

@@ -1,5 +1,5 @@
 """MultiRegistrator - Modbus TCP data logger (server/client)."""
 
-__version__ = "1.1.6"
+__version__ = "1.1.7"
 
 __all__ = ["__version__"]

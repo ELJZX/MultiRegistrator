@@ -5,6 +5,7 @@ import pytest
 from multiregistrator.common.plotting import (
     MAX_PERIOD_HOURS,
     PERIOD_MARGIN,
+    axis_tick_text,
     clamp_period_start,
     max_period_delta,
     with_margin,
@@ -44,6 +45,28 @@ def test_clamp_swaps_reversed_input():
     start = datetime(2026, 10, 13, 12, 0, 0)
     end = datetime(2026, 10, 13, 6, 0, 0)
     assert clamp_period_start(start, end) == end
+
+
+def test_axis_tick_has_date_under_time():
+    moment = datetime(2026, 10, 17, 21, 10, 30)
+    assert axis_tick_text(moment.timestamp(), 600) == "21:10\n17.10.2026"
+
+
+def test_axis_tick_shows_seconds_when_dense():
+    moment = datetime(2026, 10, 17, 21, 10, 30)
+    assert axis_tick_text(moment.timestamp(), 10) == "21:10:30\n17.10.2026"
+
+
+def test_axis_tick_multiday_shows_time_and_date():
+    moment = datetime(2026, 10, 17, 21, 10, 30)
+    text = axis_tick_text(moment.timestamp(), 2 * 86400)
+    assert "\n" in text
+    assert "21:10" in text
+    assert "17.10.2026" in text
+
+
+def test_axis_tick_invalid_timestamp_is_empty():
+    assert axis_tick_text(float("inf"), 60) == ""
 
 
 def test_with_margin_adds_ten_percent_each_side():

@@ -221,6 +221,9 @@ powershell -ExecutionPolicy Bypass -File packaging\build_installers.ps1
 Иконки программ: `packaging/icons/client.ico` (клиент) и
 `packaging/icons/server.ico` (сервер).
 
+Подробное руководство пользователя со скриншотами:
+`docs/MultiRegistrator_UserManual_1.1.7.pdf`.
+
 ## Конфигурация
 
 * `config/server_config.json` — настройки API, папка архива, список устройств.
