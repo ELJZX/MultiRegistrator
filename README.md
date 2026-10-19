@@ -164,8 +164,10 @@ Python на целевой машине не требуется. Папки `con
 
 ## PostgreSQL и pgAdmin (Docker)
 
-Сервер и клиент можно запустить целиком в Docker — архив и логи при этом
-хранятся только в PostgreSQL (локальные `archive/*.txt` не создаются).
+В Docker работает **только сервер** (и его PostgreSQL/pgAdmin), архив и логи
+при этом хранятся в PostgreSQL (локальные `archive/*.txt` не создаются).
+Настольный клиент по умолчанию подключается к контейнерному серверу по адресу
+`127.0.0.1:8120`.
 
 ```powershell
 docker compose up -d --build
@@ -173,17 +175,16 @@ docker compose up -d --build
 
 | Сервис | Адрес | Учётные данные |
 |--------|-------|----------------|
+| API сервера | http://localhost:8120/api/health | — |
 | pgAdmin | http://localhost:5051 | `admin@example.com` / `admin` |
 | PostgreSQL | `localhost:5433` | `multiregistrator` / `multiregistrator` |
-| API сервера | http://localhost:8121/api/health | — |
-| Клиент (браузер) | http://localhost:6080/vnc.html | — |
 
-Клиент в контейнере работает в виртуальном дисплее и открывается в браузере
-через noVNC (`http://localhost:6080/vnc.html`). В pgAdmin сервер
-**MultiRegistrator** уже добавлен (пароль БД вводится при первом подключении).
-Порты по умолчанию смещены (5433/5051/8121/6080), чтобы не конфликтовать с
-другими локальными сервисами; их можно переопределить переменными
-`POSTGRES_PORT`, `PGADMIN_PORT`, `SERVER_API_PORT`, `CLIENT_VNC_PORT`.
+Сервер опубликован на стандартном порту **8120**, поэтому клиент подключается
+без дополнительной настройки. Порты БД/pgAdmin смещены на 5433/5051, чтобы не
+конфликтовать с другими локальными сервисами; их можно переопределить
+переменными `POSTGRES_PORT`, `PGADMIN_PORT`, `SERVER_API_PORT`.
+В pgAdmin сервер **MultiRegistrator** уже добавлен (пароль БД вводится при
+первом подключении).
 
 **Режим хранения** (`archive_storage` / `MULTIREGISTRATOR_ARCHIVE_STORAGE`):
 

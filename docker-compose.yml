@@ -1,14 +1,14 @@
-﻿# MultiRegistrator: server + PostgreSQL + pgAdmin + client.
+﻿# MultiRegistrator: the server (plus PostgreSQL and pgAdmin) runs in Docker.
+# The desktop client connects to it at http://127.0.0.1:8120 by default.
 #
 #   docker compose up -d --build
 #
 # pgAdmin:  http://localhost:5051  (admin@example.com / admin)
-# API:      http://localhost:8121/api/health
-# Client:   http://localhost:6080/vnc.html   (runs in the browser via noVNC)
+# API:      http://localhost:8120/api/health
 #
-# Host ports default to 5433/5051/8121/6080 because 5432/5050/8120 are commonly
-# taken by other local services; override with POSTGRES_PORT, PGADMIN_PORT,
-# SERVER_API_PORT and CLIENT_VNC_PORT if needed.
+# PostgreSQL/pgAdmin ports are shifted to 5433/5051 to avoid other local
+# services; override with POSTGRES_PORT / PGADMIN_PORT.  The server is published
+# on the standard 8120 so the client works without extra configuration.
 #
 # Archive storage defaults to PostgreSQL only (no CSV files on the host).
 # Set MULTIREGISTRATOR_ARCHIVE_STORAGE=files or =both to also write
@@ -69,29 +69,11 @@ services:
       MULTIREGISTRATOR_DB_USER: ${POSTGRES_USER:-multiregistrator}
       MULTIREGISTRATOR_DB_PASSWORD: ${POSTGRES_PASSWORD:-multiregistrator}
     ports:
-      - "${SERVER_API_PORT:-8121}:8120"
+      - "${SERVER_API_PORT:-8120}:8120"
     volumes:
       - ./config:/app/config
       - ./archive:/app/archive
       - ./logs:/app/logs
-
-  client:
-    build:
-      context: .
-      dockerfile: Dockerfile.client
-    container_name: multiregistrator-client
-    restart: unless-stopped
-    depends_on:
-      - server
-    environment:
-      MULTIREGISTRATOR_SERVER: server:8120
-      SCREEN_GEOMETRY: ${CLIENT_SCREEN:-1600x1000x24}
-    ports:
-      - "${CLIENT_VNC_PORT:-6080}:6080"
-    volumes:
-      - ./config:/app/config
-      - ./logs:/app/logs
-    shm_size: "512m"
 
 volumes:
   postgres-data:
