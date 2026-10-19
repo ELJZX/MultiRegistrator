@@ -1,7 +1,8 @@
 # Build standalone Windows executables for MultiRegistrator.
 #
-# Requires: python -m pip install -r requirements-dev.txt
-# Output:   dist\MultiRegistratorServer.exe, dist\MultiRegistratorClient.exe
+# Requires: python -m pip install -r requirements-dev.txt "psycopg[binary]"
+# Output:   dist\MultiRegistratorServer.exe, dist\MultiRegistratorClient.exe,
+#           dist\MultiRegistratorTestDevice.exe
 
 $ErrorActionPreference = "Stop"
 
@@ -11,8 +12,12 @@ Set-Location $root
 Write-Host "Building MultiRegistratorServer.exe ..."
 python -m PyInstaller --noconfirm --clean --onefile --windowed --specpath build `
     --name MultiRegistratorServer `
+    --icon "$root\packaging\icons\server.ico" `
     --collect-submodules uvicorn `
     --collect-submodules pymodbus `
+    --collect-all psycopg `
+    --collect-all psycopg_binary `
+    --collect-all tzdata `
     --collect-all fastapi `
     --collect-all starlette `
     --collect-all anyio `
@@ -27,6 +32,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --specpath build 
 Write-Host "Building MultiRegistratorClient.exe ..."
 python -m PyInstaller --noconfirm --clean --onefile --windowed --specpath build `
     --name MultiRegistratorClient `
+    --icon "$root\packaging\icons\client.ico" `
     --collect-submodules pyqtgraph `
     --collect-submodules requests `
     packaging\entry_client.py
@@ -34,6 +40,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed --specpath build 
 Write-Host "Building MultiRegistratorTestDevice.exe ..."
 python -m PyInstaller --noconfirm --clean --onefile --console --specpath build `
     --name MultiRegistratorTestDevice `
+    --icon "$root\packaging\icons\server.ico" `
     packaging\entry_test_device.py
 
 Write-Host "Copying executables to the project root ..."

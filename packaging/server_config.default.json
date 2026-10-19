@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "api_host": "0.0.0.0",
+    "api_port": 8120,
+    "archive_dir": "archive",
+    "archive_storage": "database",
+    "default_poll_interval": 5.0,
+    "default_timeout": 3.0,
+    "default_retries": 1,
+    "inter_request_delay": 0.0,
+    "database": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 5433,
+      "name": "multiregistrator",
+      "user": "multiregistrator",
+      "password": "multiregistrator",
+      "connect_timeout": 5
+    }
+  },
+  "devices": []
+}

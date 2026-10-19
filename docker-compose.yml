@@ -1,18 +1,14 @@
-﻿# MultiRegistrator: the server (plus PostgreSQL and pgAdmin) runs in Docker.
-# The desktop client connects to it at http://127.0.0.1:8120 by default.
+﻿# MultiRegistrator: PostgreSQL only (measurements + application logs).
 #
-#   docker compose up -d --build
+# The server and the client are desktop programs installed from their setup
+# files.  The server connects to this database at 127.0.0.1:5433 (see
+# config/server_config.json), so the administrator can add and configure
+# devices in the server GUI.
 #
-# pgAdmin:  http://localhost:5051  (admin@example.com / admin)
-# API:      http://localhost:8120/api/health
+#   docker compose up -d
 #
-# PostgreSQL/pgAdmin ports are shifted to 5433/5051 to avoid other local
-# services; override with POSTGRES_PORT / PGADMIN_PORT.  The server is published
-# on the standard 8120 so the client works without extra configuration.
-#
-# Archive storage defaults to PostgreSQL only (no CSV files on the host).
-# Set MULTIREGISTRATOR_ARCHIVE_STORAGE=files or =both to also write
-# archive/*.txt.
+# Connection: host=127.0.0.1  port=5433  db=multiregistrator
+#             user=multiregistrator  password=multiregistrator
 
 services:
   postgres:
@@ -33,49 +29,5 @@ services:
       timeout: 5s
       retries: 12
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: multiregistrator-pgadmin
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
-      PGADMIN_REPLACE_SERVERS: "1"
-    ports:
-      - "${PGADMIN_PORT:-5051}:80"
-    volumes:
-      - pgadmin-data:/var/lib/pgadmin
-      - ./deploy/pgadmin-servers.json:/pgadmin4/servers.json:ro
-
-  server:
-    build: .
-    container_name: multiregistrator-server
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      MULTIREGISTRATOR_ARCHIVE_STORAGE: ${ARCHIVE_STORAGE:-database}
-      MULTIREGISTRATOR_DB_ENABLED: "1"
-      MULTIREGISTRATOR_DB_HOST: postgres
-      MULTIREGISTRATOR_DB_PORT: "5432"
-      MULTIREGISTRATOR_DB_NAME: ${POSTGRES_DB:-multiregistrator}
-      MULTIREGISTRATOR_DB_USER: ${POSTGRES_USER:-multiregistrator}
-      MULTIREGISTRATOR_DB_PASSWORD: ${POSTGRES_PASSWORD:-multiregistrator}
-    ports:
-      - "${SERVER_API_PORT:-8120}:8120"
-    volumes:
-      - ./config:/app/config
-      - ./archive:/app/archive
-      - ./logs:/app/logs
-
 volumes:
   postgres-data:
-  pgadmin-data:
-

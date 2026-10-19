@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "multiregistrator"
-version = "1.1.5"
+version = "1.1.6"
 description = "MultiRegistrator - Modbus TCP data logger with server/client architecture"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "requests>=2.31",
+    "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]

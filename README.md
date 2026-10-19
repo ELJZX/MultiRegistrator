@@ -162,36 +162,32 @@ Python на целевой машине не требуется. Папки `con
 `5020` и регистрами из таблицы — после «Запустить сервер» оно станет зелёным, а в
 `archive\<ip>\` начнут писаться данные.
 
-## PostgreSQL и pgAdmin (Docker)
+## PostgreSQL (Docker) и установка программ
 
-В Docker работает **только сервер** (и его PostgreSQL/pgAdmin), архив и логи
-при этом хранятся в PostgreSQL (локальные `archive/*.txt` не создаются).
-Настольный клиент по умолчанию подключается к контейнерному серверу по адресу
-`127.0.0.1:8120`.
+В Docker поднимается **только PostgreSQL** — в неё пишутся данные измерений и
+логи приложения. Сервер и клиент — обычные настольные программы: сервер
+запускается вручную (exe/ярлык), чтобы администратор мог добавлять и
+настраивать устройства.
 
 ```powershell
-docker compose up -d --build
+docker compose up -d
 ```
 
 | Сервис | Адрес | Учётные данные |
 |--------|-------|----------------|
-| API сервера | http://localhost:8120/api/health | — |
-| pgAdmin | http://localhost:5051 | `admin@example.com` / `admin` |
-| PostgreSQL | `localhost:5433` | `multiregistrator` / `multiregistrator` |
+| PostgreSQL | `127.0.0.1:5433` | `multiregistrator` / `multiregistrator` |
 
-Сервер опубликован на стандартном порту **8120**, поэтому клиент подключается
-без дополнительной настройки. Порты БД/pgAdmin смещены на 5433/5051, чтобы не
-конфликтовать с другими локальными сервисами; их можно переопределить
-переменными `POSTGRES_PORT`, `PGADMIN_PORT`, `SERVER_API_PORT`.
-В pgAdmin сервер **MultiRegistrator** уже добавлен (пароль БД вводится при
-первом подключении).
+Сервер по умолчанию настроен на эту БД (`config/server_config.json`:
+`archive_storage = "database"`, `database.host = "127.0.0.1"`,
+`database.port = 5433`). Порядок работы: запустить Docker с БД, затем запустить
+`MultiRegistratorServer.exe` и нажать «Запустить сервер».
 
 **Режим хранения** (`archive_storage` / `MULTIREGISTRATOR_ARCHIVE_STORAGE`):
 
 | Значение | Поведение |
 |----------|-----------|
-| `files` | только `archive/*.txt` (как раньше) |
-| `database` | только PostgreSQL (по умолчанию в Docker) |
+| `files` | только `archive/*.txt` |
+| `database` | только PostgreSQL (по умолчанию) |
 | `both` | CSV-файлы + PostgreSQL |
 
 Схема БД:
@@ -202,10 +198,28 @@ docker compose up -d --build
 | `measurements` | по строке на каждый канал каждого опроса |
 | `app_logs` | все записи логов приложения |
 
-Настольный сервер тоже может писать в эту БД: «Настройки сервера» → блок
-**PostgreSQL (pgAdmin)** → «Хранилище архива» = «Только PostgreSQL» и адрес
-`127.0.0.1:5433`. В контейнере те же параметры задаются переменными
-`MULTIREGISTRATOR_DB_*` и `MULTIREGISTRATOR_ARCHIVE_STORAGE`.
+Настройки БД можно изменить в «Настройки сервера» → блок **PostgreSQL** либо
+переменными окружения `MULTIREGISTRATOR_DB_*` и
+`MULTIREGISTRATOR_ARCHIVE_STORAGE`.
+
+### Установщики (Windows)
+
+```powershell
+python -m pip install -r requirements-dev.txt "psycopg[binary]"
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+powershell -ExecutionPolicy Bypass -File packaging\build_installers.ps1
+```
+
+Результат — в папке `installers`:
+
+* `MultiRegistratorServer-Setup-<версия>.exe` — сервер (устанавливается в
+  Program Files, требуются права администратора; создаёт `config`, `archive`,
+  `logs`; при первом запуске подкладывает конфиг с БД `127.0.0.1:5433`);
+* `MultiRegistratorClient-Setup-<версия>.exe` — клиент (устанавливается в
+  профиль пользователя, без прав администратора).
+
+Иконки программ: `packaging/icons/client.ico` (клиент) и
+`packaging/icons/server.ico` (сервер).
 
 ## Конфигурация
 
