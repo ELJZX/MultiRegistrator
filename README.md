@@ -164,9 +164,8 @@ Python на целевой машине не требуется. Папки `con
 
 ## PostgreSQL и pgAdmin (Docker)
 
-Сервер может дополнительно сохранять архив и логи в PostgreSQL — их удобно
-смотреть в pgAdmin. CSV-файлы и `logs/*.log` при этом продолжают писаться как
-раньше (БД — это зеркало, а не замена).
+Сервер и клиент можно запустить целиком в Docker — архив и логи при этом
+хранятся только в PostgreSQL (локальные `archive/*.txt` не создаются).
 
 ```powershell
 docker compose up -d --build
@@ -177,11 +176,22 @@ docker compose up -d --build
 | pgAdmin | http://localhost:5051 | `admin@example.com` / `admin` |
 | PostgreSQL | `localhost:5433` | `multiregistrator` / `multiregistrator` |
 | API сервера | http://localhost:8121/api/health | — |
+| Клиент (браузер) | http://localhost:6080/vnc.html | — |
 
-В pgAdmin сервер **MultiRegistrator** уже добавлен (пароль БД вводится при первом
-подключении). Порты по умолчанию смещены (5433/5051/8121), чтобы не конфликтовать
-с другими локальными сервисами; их можно переопределить переменными
-`POSTGRES_PORT`, `PGADMIN_PORT`, `SERVER_API_PORT`.
+Клиент в контейнере работает в виртуальном дисплее и открывается в браузере
+через noVNC (`http://localhost:6080/vnc.html`). В pgAdmin сервер
+**MultiRegistrator** уже добавлен (пароль БД вводится при первом подключении).
+Порты по умолчанию смещены (5433/5051/8121/6080), чтобы не конфликтовать с
+другими локальными сервисами; их можно переопределить переменными
+`POSTGRES_PORT`, `PGADMIN_PORT`, `SERVER_API_PORT`, `CLIENT_VNC_PORT`.
+
+**Режим хранения** (`archive_storage` / `MULTIREGISTRATOR_ARCHIVE_STORAGE`):
+
+| Значение | Поведение |
+|----------|-----------|
+| `files` | только `archive/*.txt` (как раньше) |
+| `database` | только PostgreSQL (по умолчанию в Docker) |
+| `both` | CSV-файлы + PostgreSQL |
 
 Схема БД:
 
@@ -192,8 +202,9 @@ docker compose up -d --build
 | `app_logs` | все записи логов приложения |
 
 Настольный сервер тоже может писать в эту БД: «Настройки сервера» → блок
-**PostgreSQL (pgAdmin)** → включить и указать `127.0.0.1:5433`. В контейнере те
-же параметры задаются переменными `MULTIREGISTRATOR_DB_*`.
+**PostgreSQL (pgAdmin)** → «Хранилище архива» = «Только PostgreSQL» и адрес
+`127.0.0.1:5433`. В контейнере те же параметры задаются переменными
+`MULTIREGISTRATOR_DB_*` и `MULTIREGISTRATOR_ARCHIVE_STORAGE`.
 
 ## Конфигурация
 

@@ -13,12 +13,13 @@ ENV PYTHONUNBUFFERED=1 \
     MULTIREGISTRATOR_DB_HOST=postgres \
     MULTIREGISTRATOR_DB_PORT=5432 \
     MULTIREGISTRATOR_DB_NAME=multiregistrator \
-    MULTIREGISTRATOR_DB_USER=multiregistrator
+    MULTIREGISTRATOR_DB_USER=multiregistrator \
+    MULTIREGISTRATOR_ARCHIVE_STORAGE=database
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-server.txt ./
+RUN pip install --no-cache-dir -r requirements-server.txt
 
 COPY multiregistrator ./multiregistrator
 COPY packaging ./packaging

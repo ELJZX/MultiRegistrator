@@ -174,10 +174,11 @@ class Database:
 
 
 class DatabaseArchiveWriter:
-    """``ArchiveWriter``-compatible writer that mirrors samples into PostgreSQL.
+    """``ArchiveWriter``-compatible writer backed by PostgreSQL.
 
-    The CSV file is still written first (the primary, offline-friendly archive);
-    the database copy is written afterwards and failures never propagate.
+    ``csv_writer`` may be ``None`` (database-only mode).  When given, the CSV is
+    written first and the database copy afterwards; a database failure never
+    stops polling.
     """
 
     def __init__(self, csv_writer, database: Database, logger: Optional[logging.Logger] = None) -> None:
@@ -190,7 +191,9 @@ class DatabaseArchiveWriter:
         return getattr(self._csv, "archive_dir", None)
 
     def append_sample(self, device, timestamp, values, channels=None):
-        path = self._csv.append_sample(device, timestamp, values, channels)
+        path = None
+        if self._csv is not None:
+            path = self._csv.append_sample(device, timestamp, values, channels)
         if not self._db.available:
             return path
         try:
@@ -198,6 +201,84 @@ class DatabaseArchiveWriter:
         except Exception:  # pragma: no cover - DB outage must not stop polling
             self._logger.exception("не удалось записать измерения в PostgreSQL")
         return path
+
+
+class DatabaseArchiveReader:
+    """``ArchiveReader``-compatible reader that queries PostgreSQL.
+
+    Implements the subset used by the HTTP API and the clients: channel list,
+    available dates and a time range.  Keeps the same ``channel -> TimeSeries``
+    contract as the file based reader.
+    """
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    # -- queries ------------------------------------------------------------
+    def _query(self, sql: str, params: tuple):
+        with self._db._lock:
+            conn = self._db._connection()
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                return cursor.fetchall()
+
+    def list_devices(self) -> list[str]:
+        rows = self._query("SELECT DISTINCT device_id FROM measurements", ())
+        return sorted(row[0] for row in rows)
+
+    def list_dates(self, host: str) -> list:
+        from datetime import date as _date
+
+        rows = self._query(
+            "SELECT DISTINCT measured_at::date FROM measurements "
+            "WHERE device_id = %s OR device_host = %s",
+            (host, host),
+        )
+        return sorted({row[0] for row in rows})
+
+    def list_channels(self, host: str) -> list[str]:
+        rows = self._query(
+            "SELECT DISTINCT channel FROM measurements "
+            "WHERE device_id = %s OR device_host = %s ORDER BY channel",
+            (host, host),
+        )
+        return [row[0] for row in rows]
+
+    def read_range(self, host: str, start, end, channels=None):
+        from .models import TimeSeries
+
+        result: dict[str, TimeSeries] = {}
+        for channel in channels or ():
+            result.setdefault(channel, TimeSeries(channel=channel))
+
+        sql = (
+            "SELECT channel, measured_at, value FROM measurements "
+            "WHERE (device_id = %s OR device_host = %s) "
+            "AND measured_at >= %s AND measured_at <= %s"
+        )
+        params: list = [host, host, start, end]
+        if channels:
+            sql += " AND channel = ANY(%s)"
+            params.append(list(channels))
+        sql += " ORDER BY measured_at"
+
+        for channel, moment, value in self._query(sql, tuple(params)):
+            series = result.setdefault(channel, TimeSeries(channel=channel))
+            series.add(moment.replace(tzinfo=None), None if value is None else float(value))
+        return result
+
+    def read_day(self, host: str, day, channels=None):
+        from datetime import datetime as _datetime
+
+        from .archive import parse_day
+
+        day = parse_day(day)
+        return self.read_range(
+            host,
+            _datetime.combine(day, _datetime.min.time()),
+            _datetime.combine(day, _datetime.max.time()),
+            channels,
+        )
 
 
 class DatabaseLogHandler(logging.Handler):
@@ -256,3 +337,28 @@ def create_database(settings: DatabaseSettings) -> Optional[Database]:
     if not settings.enabled:
         return None
     return Database(settings)
+
+
+def build_storage(settings, archive_dir, csv_writer_factory=None):
+    """Create ``(writer, reader, database)`` for the configured storage mode.
+
+    ``settings`` is a :class:`~multiregistrator.common.config.ServerSettings`.
+    In ``database`` mode nothing is written to ``archive_dir`` at all; in
+    ``both`` mode the CSV file is written first and mirrored into PostgreSQL.
+    """
+
+    from .archive import ArchiveReader, ArchiveWriter
+
+    mode = getattr(settings, "archive_storage", "files")
+    database = create_database(settings.database) if getattr(settings, "uses_database", False) else None
+
+    if mode == "files" or database is None:
+        writer = (csv_writer_factory or ArchiveWriter)(archive_dir)
+        return writer, ArchiveReader(archive_dir), None
+
+    if getattr(settings, "uses_files", False):
+        csv_writer = (csv_writer_factory or ArchiveWriter)(archive_dir)
+        writer = DatabaseArchiveWriter(csv_writer, database)
+    else:
+        writer = DatabaseArchiveWriter(None, database)
+    return writer, DatabaseArchiveReader(database), database

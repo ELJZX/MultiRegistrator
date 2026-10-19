@@ -197,3 +197,109 @@ def test_schema_defines_expected_tables():
     assert "CREATE TABLE IF NOT EXISTS devices" in db_module.SCHEMA_SQL
     assert "CREATE TABLE IF NOT EXISTS measurements" in db_module.SCHEMA_SQL
     assert "CREATE TABLE IF NOT EXISTS app_logs" in db_module.SCHEMA_SQL
+
+
+# -- storage modes ---------------------------------------------------------
+
+from multiregistrator.common.config import (  # noqa: E402
+    STORAGE_BOTH,
+    STORAGE_DATABASE,
+    STORAGE_FILES,
+)
+from multiregistrator.common.database import (  # noqa: E402
+    DatabaseArchiveReader,
+    build_storage,
+)
+
+
+class FakeCsvWriter:
+    def __init__(self, archive_dir):
+        self.archive_dir = archive_dir
+        self.samples = []
+
+    def append_sample(self, device, timestamp, values, channels=None):
+        self.samples.append((device.id, timestamp, dict(values)))
+        return "csv-path"
+
+
+def test_storage_files_mode_does_not_touch_database(monkeypatch):
+    monkeypatch.setattr(db_module, "psycopg", None)
+    settings = ServerSettings(archive_storage=STORAGE_FILES, database=make_settings())
+    writer, reader, database = build_storage(settings, "archive", FakeCsvWriter)
+    assert database is None
+    assert writer.archive_dir == "archive"
+    assert reader.__class__.__name__ == "ArchiveReader"
+
+
+def test_storage_database_mode_writes_only_database(monkeypatch):
+    database, conn = make_fake_database(monkeypatch)
+    monkeypatch.setattr(db_module, "create_database", lambda _settings: database)
+    settings = ServerSettings(archive_storage=STORAGE_DATABASE, database=make_settings())
+
+    def factory(_dir):
+        raise AssertionError("CSV writer must not be created in database mode")
+
+    writer, reader, db = build_storage(settings, "archive", factory)
+    assert db is database
+    assert isinstance(reader, DatabaseArchiveReader)
+
+    device = DeviceConfig(id="d1", name="Dev", host="10.0.0.1")
+    writer.append_sample(device, datetime(2026, 10, 19, 12, 0, 0), {"a": 1.0})
+    sql_text = " ".join(sql for sql, _ in conn.calls)
+    assert "INSERT INTO measurements" in sql_text
+
+
+def test_storage_both_mode_writes_csv_and_database(monkeypatch):
+    database, conn = make_fake_database(monkeypatch)
+    monkeypatch.setattr(db_module, "create_database", lambda _settings: database)
+    settings = ServerSettings(archive_storage=STORAGE_BOTH, database=make_settings())
+    writer, reader, db = build_storage(settings, "archive", FakeCsvWriter)
+    assert db is database
+
+    device = DeviceConfig(id="d1", name="Dev", host="10.0.0.1")
+    writer.append_sample(device, datetime(2026, 10, 19, 12, 0, 0), {"a": 1.0})
+    assert writer._csv.samples
+    assert any("INSERT INTO measurements" in sql for sql, _ in conn.calls)
+
+
+def test_storage_database_mode_falls_back_to_files_when_db_disabled(monkeypatch):
+    settings = ServerSettings(
+        archive_storage=STORAGE_DATABASE,
+        database=DatabaseSettings(enabled=False),
+    )
+    writer, reader, database = build_storage(settings, "archive", FakeCsvWriter)
+    assert database is None
+    assert writer.archive_dir == "archive"
+
+
+def test_database_archive_reader_maps_rows(monkeypatch):
+    database, conn = make_fake_database(monkeypatch)
+    moment = datetime(2026, 10, 19, 12, 0, 0)
+
+    class Cursor(FakeCursor):
+        def fetchall(self):
+            return [("temperature", moment, 25.5), ("humidity", moment, None)]
+
+    class ReaderConnection(FakeConnection):
+        def cursor(self):
+            return Cursor(self.calls)
+
+    monkeypatch.setattr(database, "_connection", lambda: ReaderConnection())
+    reader = DatabaseArchiveReader(database)
+    series = reader.read_range("10.0.0.1", datetime(2026, 10, 19, 0, 0),
+                              datetime(2026, 10, 19, 23, 59))
+    assert series["temperature"].values == [25.5]
+    assert series["humidity"].values == [None]
+
+
+def test_archive_storage_env_override(monkeypatch):
+    monkeypatch.setenv("MULTIREGISTRATOR_ARCHIVE_STORAGE", "database")
+    settings = ServerSettings.from_dict({})
+    assert settings.archive_storage == "database"
+    assert settings.uses_database is True
+    assert settings.uses_files is False
+
+
+def test_invalid_archive_storage_falls_back_to_files():
+    settings = ServerSettings.from_dict({"archive_storage": "bogus"})
+    assert settings.archive_storage == "files"

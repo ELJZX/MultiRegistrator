@@ -110,22 +110,36 @@ class DatabaseSettings:
         )
 
 
+STORAGE_FILES = "files"
+STORAGE_DATABASE = "database"
+STORAGE_BOTH = "both"
+STORAGE_MODES = (STORAGE_FILES, STORAGE_DATABASE, STORAGE_BOTH)
+
+
 @dataclass
 class ServerSettings:
     api_host: str = "0.0.0.0"
     api_port: int = 8120
     archive_dir: str = "archive"
+    #: Where samples are stored: "files" (CSV), "database" (PostgreSQL only) or
+    #: "both".  ``archive_storage`` wins over ``database.enabled``.
+    archive_storage: str = STORAGE_FILES
     default_poll_interval: float = 5.0
     default_timeout: float = 3.0
     default_retries: int = 1
     inter_request_delay: float = 0.0
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
 
+    def __post_init__(self) -> None:
+        if self.archive_storage not in STORAGE_MODES:
+            self.archive_storage = STORAGE_FILES
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "api_host": self.api_host,
             "api_port": self.api_port,
             "archive_dir": self.archive_dir,
+            "archive_storage": self.archive_storage,
             "default_poll_interval": self.default_poll_interval,
             "default_timeout": self.default_timeout,
             "default_retries": self.default_retries,
@@ -140,6 +154,10 @@ class ServerSettings:
             api_host=str(data.get("api_host", defaults.api_host)),
             api_port=int(data.get("api_port", defaults.api_port)),
             archive_dir=str(data.get("archive_dir", defaults.archive_dir)),
+            archive_storage=_env_str(
+                "MULTIREGISTRATOR_ARCHIVE_STORAGE",
+                str(data.get("archive_storage", defaults.archive_storage)),
+            ),
             default_poll_interval=float(
                 data.get("default_poll_interval", defaults.default_poll_interval)
             ),
@@ -150,6 +168,14 @@ class ServerSettings:
             ),
             database=DatabaseSettings.from_dict(data.get("database", {})),
         )
+
+    @property
+    def uses_files(self) -> bool:
+        return self.archive_storage in (STORAGE_FILES, STORAGE_BOTH)
+
+    @property
+    def uses_database(self) -> bool:
+        return self.archive_storage in (STORAGE_DATABASE, STORAGE_BOTH)
 
     def resolve_archive_dir(self, base_dir: Optional[Path] = None) -> Path:
         path = Path(self.archive_dir)

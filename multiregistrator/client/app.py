@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from PySide6.QtCore import Qt
@@ -40,8 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     apply_light_theme(app)
 
     config = load_client_config()
-    if args.server:
-        host, _, port = args.server.partition(":")
+    server = args.server or os.environ.get("MULTIREGISTRATOR_SERVER")
+    if server:
+        host, _, port = server.partition(":")
         config.settings.server_host = host or config.settings.server_host
         if port:
             config.settings.server_port = int(port)

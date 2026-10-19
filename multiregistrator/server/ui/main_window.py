@@ -24,13 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from ... import __version__
-from ...common.archive import ArchiveReader, ArchiveWriter
 from ...common.config import ServerConfig, load_server_config, save_server_config
-from ...common.database import (
-    DatabaseArchiveWriter,
-    attach_database_logging,
-    create_database,
-)
+from ...common.database import attach_database_logging, build_storage
 from ...common.models import DeviceConfig, DeviceStatus
 from ..api import ApiServer, create_app, is_port_available, resolve_bind_host
 from ..modbus import ModbusReader
@@ -276,16 +271,15 @@ class ServerMainWindow(QMainWindow):
             )
             return
         archive_dir = settings.resolve_archive_dir()
-        archive_dir.mkdir(parents=True, exist_ok=True)
+        if settings.uses_files:
+            archive_dir.mkdir(parents=True, exist_ok=True)
         reader = ModbusReader(inter_request_delay=settings.inter_request_delay)
-        writer = ArchiveWriter(archive_dir)
-        database = create_database(settings.database)
+        writer, archive_reader, database = build_storage(settings, archive_dir)
         if database is not None:
             attach_database_logging(database)
-            writer = DatabaseArchiveWriter(writer, database)
             self._log(
-                f"Архив и логи дублируются в PostgreSQL "
-                f"{settings.database.host}:{settings.database.port}/{settings.database.name}"
+                f"Хранилище: {settings.archive_storage} (PostgreSQL "
+                f"{settings.database.host}:{settings.database.port}/{settings.database.name})"
             )
         self.service = ServerService(
             reader,
@@ -299,7 +293,7 @@ class ServerMainWindow(QMainWindow):
         self.stop_action.setEnabled(True)
         try:
             self.service.start()
-            app = create_app(self.service, ArchiveReader(archive_dir))
+            app = create_app(self.service, archive_reader)
             self.api = ApiServer(app, api_host, settings.api_port)
             self.api.start()
         except Exception as exc:  # pragma: no cover - defensive
@@ -312,10 +306,14 @@ class ServerMainWindow(QMainWindow):
                 f"Адрес {settings.api_host} недоступен для прослушивания, "
                 f"API слушает 0.0.0.0:{settings.api_port}"
             )
+        if settings.uses_files:
+            storage = f"Архив: {archive_dir}"
+        else:
+            storage = "Архив: PostgreSQL"
         self.statusBar().showMessage(
-            f"Сервер запущен. API: {api_host}:{settings.api_port}. Архив: {archive_dir}"
+            f"Сервер запущен. API: {api_host}:{settings.api_port}. {storage}"
         )
-        self._log(f"Сервер запущен. Архив: {archive_dir}")
+        self._log(f"Сервер запущен. {storage}")
 
     def autostart(self) -> None:
         """Start polling + API immediately (used by the ``--autostart`` flag)."""

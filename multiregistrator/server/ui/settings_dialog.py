@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -19,7 +20,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ...common.config import DatabaseSettings, ServerSettings
+from ...common.config import (
+    STORAGE_BOTH,
+    STORAGE_DATABASE,
+    STORAGE_FILES,
+    DatabaseSettings,
+    ServerSettings,
+)
 
 
 class ServerSettingsDialog(QDialog):
@@ -56,7 +63,15 @@ class ServerSettingsDialog(QDialog):
 
         # -- PostgreSQL ------------------------------------------------------
         db = settings.database
-        self.db_enabled = QCheckBox("Дублировать архив и логи в PostgreSQL")
+        self.storage_combo = QComboBox()
+        self.storage_combo.addItem("Только файлы (archive/*.txt)", STORAGE_FILES)
+        self.storage_combo.addItem("Только PostgreSQL", STORAGE_DATABASE)
+        self.storage_combo.addItem("Файлы + PostgreSQL", STORAGE_BOTH)
+        index = self.storage_combo.findData(settings.archive_storage)
+        self.storage_combo.setCurrentIndex(max(0, index))
+        self.storage_combo.currentIndexChanged.connect(self._update_db_enabled)
+
+        self.db_enabled = QCheckBox("Писать логи в PostgreSQL")
         self.db_enabled.setChecked(db.enabled)
         self.db_host = QLineEdit(db.host)
         self.db_port = QSpinBox()
@@ -78,8 +93,12 @@ class ServerSettingsDialog(QDialog):
         db_form.addRow("Пользователь", self.db_user)
         db_form.addRow("Пароль", self.db_password)
         db_form.addRow("Таймаут подключения", self.db_timeout)
+        storage_form = QFormLayout()
+        storage_form.addRow("Хранилище архива", self.storage_combo)
+
         db_box = QGroupBox("PostgreSQL (pgAdmin)")
         db_box_layout = QVBoxLayout(db_box)
+        db_box_layout.addLayout(storage_form)
         db_box_layout.addWidget(self.db_enabled)
         db_box_layout.addLayout(db_form)
 
@@ -104,6 +123,26 @@ class ServerSettingsDialog(QDialog):
         layout.addWidget(db_box)
         layout.addWidget(buttons)
 
+        self._update_db_enabled()
+
+    def _update_db_enabled(self) -> None:
+        """The DB fields only matter when the archive uses PostgreSQL."""
+
+        mode = self.storage_combo.currentData()
+        needs_db = mode in (STORAGE_DATABASE, STORAGE_BOTH)
+        for widget in (
+            self.db_enabled,
+            self.db_host,
+            self.db_port,
+            self.db_name,
+            self.db_user,
+            self.db_password,
+            self.db_timeout,
+        ):
+            widget.setEnabled(needs_db)
+        if needs_db:
+            self.db_enabled.setEnabled(True)
+
     def _browse(self) -> None:
         current = self.archive_edit.text() or str(Path.cwd())
         chosen = QFileDialog.getExistingDirectory(self, "Папка архива", current)
@@ -111,16 +150,19 @@ class ServerSettingsDialog(QDialog):
             self.archive_edit.setText(chosen)
 
     def settings(self) -> ServerSettings:
+        storage = self.storage_combo.currentData() or STORAGE_FILES
+        needs_db = storage in (STORAGE_DATABASE, STORAGE_BOTH)
         return ServerSettings(
             api_host=self.host_edit.text().strip() or "0.0.0.0",
             api_port=self.port_spin.value(),
             archive_dir=self.archive_edit.text().strip() or "archive",
+            archive_storage=storage,
             default_poll_interval=self.interval_spin.value(),
             default_timeout=self.timeout_spin.value(),
             default_retries=self.retries_spin.value(),
             inter_request_delay=self.delay_spin.value(),
             database=DatabaseSettings(
-                enabled=self.db_enabled.isChecked(),
+                enabled=needs_db,
                 host=self.db_host.text().strip() or "127.0.0.1",
                 port=self.db_port.value(),
                 name=self.db_name.text().strip() or "multiregistrator",
