@@ -9,6 +9,11 @@ import time
 
 from ..common.archive import ArchiveReader, ArchiveWriter
 from ..common.config import load_server_config, save_server_config
+from ..common.database import (
+    DatabaseArchiveWriter,
+    attach_database_logging,
+    create_database,
+)
 from ..common.logging_setup import get_logger, setup_logging
 from ..common.models import DeviceStatus
 from .api import ApiServer, create_app, resolve_bind_host
@@ -39,6 +44,16 @@ def _build_runtime(config, on_status=None):
     archive_dir.mkdir(parents=True, exist_ok=True)
     reader = ModbusReader(inter_request_delay=settings.inter_request_delay)
     writer = ArchiveWriter(archive_dir)
+    database = create_database(settings.database)
+    if database is not None:
+        attach_database_logging(database)
+        writer = DatabaseArchiveWriter(writer, database)
+        get_logger("app").info(
+            "Архив и логи дублируются в PostgreSQL %s:%s/%s",
+            settings.database.host,
+            settings.database.port,
+            settings.database.name,
+        )
     service = ServerService(reader, writer, devices=config.devices, on_status=on_status)
     app = create_app(service, ArchiveReader(archive_dir))
     api_host = resolve_bind_host(settings.api_host, settings.api_port) or settings.api_host

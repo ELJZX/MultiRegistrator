@@ -1,0 +1,78 @@
+﻿# MultiRegistrator: server + PostgreSQL + pgAdmin.
+#
+#   docker compose up -d --build
+#
+# pgAdmin:  http://localhost:5051  (admin@example.com / admin)
+# API:      http://localhost:8121/api/health
+#
+# Host ports default to 5433/5051/8121 because 5432/5050/8120 are commonly
+# taken by other local services; override with POSTGRES_PORT, PGADMIN_PORT and
+# SERVER_API_PORT if needed.
+#
+# The server container mirrors archive samples and logs into PostgreSQL, so
+# both are browsable in pgAdmin under the "MultiRegistrator" server.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: multiregistrator-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-multiregistrator}
+      POSTGRES_USER: ${POSTGRES_USER:-multiregistrator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-multiregistrator}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-multiregistrator} -d ${POSTGRES_DB:-multiregistrator}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: multiregistrator-pgadmin
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
+      PGADMIN_REPLACE_SERVERS: "1"
+    ports:
+      - "${PGADMIN_PORT:-5051}:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./deploy/pgadmin-servers.json:/pgadmin4/servers.json:ro
+
+  server:
+    build: .
+    container_name: multiregistrator-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MULTIREGISTRATOR_DB_ENABLED: "1"
+      MULTIREGISTRATOR_DB_HOST: postgres
+      MULTIREGISTRATOR_DB_PORT: "5432"
+      MULTIREGISTRATOR_DB_NAME: ${POSTGRES_DB:-multiregistrator}
+      MULTIREGISTRATOR_DB_USER: ${POSTGRES_USER:-multiregistrator}
+      MULTIREGISTRATOR_DB_PASSWORD: ${POSTGRES_PASSWORD:-multiregistrator}
+    ports:
+      - "${SERVER_API_PORT:-8121}:8120"
+    volumes:
+      - ./config:/app/config
+      - ./archive:/app/archive
+      - ./logs:/app/logs
+
+volumes:
+  postgres-data:
+  pgadmin-data:
+

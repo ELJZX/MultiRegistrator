@@ -26,6 +26,11 @@ from PySide6.QtWidgets import (
 from ... import __version__
 from ...common.archive import ArchiveReader, ArchiveWriter
 from ...common.config import ServerConfig, load_server_config, save_server_config
+from ...common.database import (
+    DatabaseArchiveWriter,
+    attach_database_logging,
+    create_database,
+)
 from ...common.models import DeviceConfig, DeviceStatus
 from ..api import ApiServer, create_app, is_port_available, resolve_bind_host
 from ..modbus import ModbusReader
@@ -274,6 +279,14 @@ class ServerMainWindow(QMainWindow):
         archive_dir.mkdir(parents=True, exist_ok=True)
         reader = ModbusReader(inter_request_delay=settings.inter_request_delay)
         writer = ArchiveWriter(archive_dir)
+        database = create_database(settings.database)
+        if database is not None:
+            attach_database_logging(database)
+            writer = DatabaseArchiveWriter(writer, database)
+            self._log(
+                f"Архив и логи дублируются в PostgreSQL "
+                f"{settings.database.host}:{settings.database.port}/{settings.database.name}"
+            )
         self.service = ServerService(
             reader,
             writer,

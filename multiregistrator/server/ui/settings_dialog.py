@@ -5,11 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLineEdit,
     QPushButton,
@@ -17,14 +19,14 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ...common.config import ServerSettings
+from ...common.config import DatabaseSettings, ServerSettings
 
 
 class ServerSettingsDialog(QDialog):
     def __init__(self, settings: ServerSettings, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Настройки сервера")
-        self.resize(560, 320)
+        self.resize(560, 560)
 
         self.host_edit = QLineEdit(settings.api_host)
         self.port_spin = QSpinBox()
@@ -52,6 +54,35 @@ class ServerSettingsDialog(QDialog):
         self.delay_spin.setValue(settings.inter_request_delay)
         self.delay_spin.setSuffix(" с")
 
+        # -- PostgreSQL ------------------------------------------------------
+        db = settings.database
+        self.db_enabled = QCheckBox("Дублировать архив и логи в PostgreSQL")
+        self.db_enabled.setChecked(db.enabled)
+        self.db_host = QLineEdit(db.host)
+        self.db_port = QSpinBox()
+        self.db_port.setRange(1, 65535)
+        self.db_port.setValue(db.port)
+        self.db_name = QLineEdit(db.name)
+        self.db_user = QLineEdit(db.user)
+        self.db_password = QLineEdit(db.password)
+        self.db_password.setEchoMode(QLineEdit.Password)
+        self.db_timeout = QSpinBox()
+        self.db_timeout.setRange(1, 120)
+        self.db_timeout.setValue(db.connect_timeout)
+        self.db_timeout.setSuffix(" с")
+
+        db_form = QFormLayout()
+        db_form.addRow("Сервер БД", self.db_host)
+        db_form.addRow("Порт БД", self.db_port)
+        db_form.addRow("База данных", self.db_name)
+        db_form.addRow("Пользователь", self.db_user)
+        db_form.addRow("Пароль", self.db_password)
+        db_form.addRow("Таймаут подключения", self.db_timeout)
+        db_box = QGroupBox("PostgreSQL (pgAdmin)")
+        db_box_layout = QVBoxLayout(db_box)
+        db_box_layout.addWidget(self.db_enabled)
+        db_box_layout.addLayout(db_form)
+
         form = QFormLayout()
         form.addRow("Адрес API", self.host_edit)
         form.addRow("Порт API", self.port_spin)
@@ -70,6 +101,7 @@ class ServerSettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(db_box)
         layout.addWidget(buttons)
 
     def _browse(self) -> None:
@@ -87,4 +119,13 @@ class ServerSettingsDialog(QDialog):
             default_timeout=self.timeout_spin.value(),
             default_retries=self.retries_spin.value(),
             inter_request_delay=self.delay_spin.value(),
+            database=DatabaseSettings(
+                enabled=self.db_enabled.isChecked(),
+                host=self.db_host.text().strip() or "127.0.0.1",
+                port=self.db_port.value(),
+                name=self.db_name.text().strip() or "multiregistrator",
+                user=self.db_user.text().strip() or "multiregistrator",
+                password=self.db_password.text(),
+                connect_timeout=self.db_timeout.value(),
+            ),
         )

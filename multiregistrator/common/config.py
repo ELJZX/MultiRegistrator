@@ -8,12 +8,34 @@ makes them easy to unit test with a temporary directory.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 from .models import DeviceConfig
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _env_str(name: str, default: str) -> str:
+    return os.environ.get(name, default)
 
 
 def app_root() -> Path:
@@ -39,6 +61,56 @@ def default_archive_dir(base_dir: Optional[Path] = None) -> Path:
 
 
 @dataclass
+class DatabaseSettings:
+    """PostgreSQL connection used to mirror the archive and the logs.
+
+    The container setup (``docker-compose.yml``) passes the values through
+    ``MULTIREGISTRATOR_DB_*`` environment variables, which take precedence over
+    the JSON config so the same image works on any host.
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 5432
+    name: str = "multiregistrator"
+    user: str = "multiregistrator"
+    password: str = "multiregistrator"
+    connect_timeout: int = 5
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "host": self.host,
+            "port": self.port,
+            "name": self.name,
+            "user": self.user,
+            "password": self.password,
+            "connect_timeout": self.connect_timeout,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DatabaseSettings":
+        defaults = cls()
+        return cls(
+            enabled=_env_bool(
+                "MULTIREGISTRATOR_DB_ENABLED",
+                bool(data.get("enabled", defaults.enabled)),
+            ),
+            host=_env_str("MULTIREGISTRATOR_DB_HOST", str(data.get("host", defaults.host))),
+            port=_env_int("MULTIREGISTRATOR_DB_PORT", int(data.get("port", defaults.port))),
+            name=_env_str("MULTIREGISTRATOR_DB_NAME", str(data.get("name", defaults.name))),
+            user=_env_str("MULTIREGISTRATOR_DB_USER", str(data.get("user", defaults.user))),
+            password=_env_str(
+                "MULTIREGISTRATOR_DB_PASSWORD", str(data.get("password", defaults.password))
+            ),
+            connect_timeout=_env_int(
+                "MULTIREGISTRATOR_DB_TIMEOUT",
+                int(data.get("connect_timeout", defaults.connect_timeout)),
+            ),
+        )
+
+
+@dataclass
 class ServerSettings:
     api_host: str = "0.0.0.0"
     api_port: int = 8120
@@ -47,6 +119,7 @@ class ServerSettings:
     default_timeout: float = 3.0
     default_retries: int = 1
     inter_request_delay: float = 0.0
+    database: DatabaseSettings = field(default_factory=DatabaseSettings)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +130,7 @@ class ServerSettings:
             "default_timeout": self.default_timeout,
             "default_retries": self.default_retries,
             "inter_request_delay": self.inter_request_delay,
+            "database": self.database.to_dict(),
         }
 
     @classmethod
@@ -74,6 +148,7 @@ class ServerSettings:
             inter_request_delay=float(
                 data.get("inter_request_delay", defaults.inter_request_delay)
             ),
+            database=DatabaseSettings.from_dict(data.get("database", {})),
         )
 
     def resolve_archive_dir(self, base_dir: Optional[Path] = None) -> Path:
