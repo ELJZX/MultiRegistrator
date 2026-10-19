@@ -222,7 +222,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build_installers.ps1
 `packaging/icons/server.ico` (сервер).
 
 Подробное руководство пользователя со скриншотами:
-`docs/MultiRegistrator_UserManual_1.1.7.pdf`.
+`docs/MultiRegistrator_UserManual_1.1.8.pdf`.
 
 ## Конфигурация
 

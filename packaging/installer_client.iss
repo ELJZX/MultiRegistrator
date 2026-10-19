@@ -1,6 +1,6 @@
-; MultiRegistrator вЂ” Client installer (per-user).
+; MultiRegistrator — Client installer (per-user).
 #define MyAppName "MultiRegistrator Client"
-#define MyAppVersion "1.1.7"
+#define MyAppVersion "1.1.8"
 #define MyAppPublisher "MultiRegistrator"
 #define MyAppExeName "MultiRegistratorClient.exe"
 
@@ -17,6 +17,8 @@ OutputDir=..\installers
 OutputBaseFilename=MultiRegistratorClient-Setup-{#MyAppVersion}
 SetupIconFile=icons\client.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayName={#MyAppName}
+Uninstallable=yes
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -31,11 +33,11 @@ Source: "..\dist\MultiRegistratorClient.exe"; DestDir: "{app}"; Flags: ignorever
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{group}\Удалить {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon"; Description: "РЎРѕР·РґР°С‚СЊ СЏСЂР»С‹Рє РЅР° СЂР°Р±РѕС‡РµРј СЃС‚РѕР»Рµ"; GroupDescription: "Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅРѕ:"
+Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Дополнительно:"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Р—Р°РїСѓСЃС‚РёС‚СЊ {#MyAppName}"; Flags: nowait postinstall skipifsilent
-
+Filename: "{app}\{#MyAppExeName}"; Description: "Запустить {#MyAppName}"; Flags: nowait postinstall skipifsilent

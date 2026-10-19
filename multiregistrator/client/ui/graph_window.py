@@ -62,7 +62,8 @@ HTML_SEPARATOR = "&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;"
 class TimeAxisItem(pg.DateAxisItem):
     """Time axis whose smallest step is 5 seconds."""
 
-    MIN_TICK_PX = 50.0
+    # Wide enough for the two-line label (time + date) so they never overlap.
+    MIN_TICK_PX = 95.0
     STEPS = [
         5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1800, 3600,
         7200, 10800, 21600, 43200, 86400, 172800, 604800,
@@ -90,6 +91,42 @@ class TimeAxisItem(pg.DateAxisItem):
     def tickStrings(self, values, scale, spacing):
         # Time on top, date below it (also for multi-day ranges).
         return [axis_tick_text(value, spacing) for value in values]
+
+    def drawPicture(self, p, axisSpec, tickSpecs, textSpecs):
+        """Draw the time label in the normal font and the date smaller."""
+
+        p.setRenderHint(p.RenderHint.Antialiasing, False)
+        p.setRenderHint(p.RenderHint.TextAntialiasing, True)
+
+        pen, p1, p2 = axisSpec
+        p.setPen(pen)
+        p.drawLine(p1, p2)
+        for pen, p1, p2 in tickSpecs:
+            p.setPen(pen)
+            p.drawLine(p1, p2)
+
+        base_font = self.style["tickFont"] or self.font()
+        p.setPen(self.textPen())
+        p.setClipRect(self.boundingRect().toAlignedRect())
+
+        for rect, flags, text in textSpecs:
+            if "\n" not in text:
+                p.setFont(base_font)
+                p.drawText(rect, int(flags), text)
+                continue
+            time_text, date_text = text.split("\n", 1)
+            half = rect.height() / 2.0
+            time_rect = QRectF(rect.left(), rect.top(), rect.width(), half)
+            date_rect = QRectF(rect.left(), rect.top() + half, rect.width(), half)
+            p.setFont(base_font)
+            p.drawText(time_rect, int(flags), time_text)
+            small = QFont(base_font)
+            if base_font.pixelSize() > 0:
+                small.setPixelSize(max(6, int(base_font.pixelSize() * 0.72)))
+            else:
+                small.setPointSizeF(max(5.0, base_font.pointSizeF() * 0.72))
+            p.setFont(small)
+            p.drawText(date_rect, int(flags), date_text)
 
 
 class GraphView(QWidget):
