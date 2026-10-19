@@ -5,6 +5,10 @@ set -e
 GEOMETRY="${SCREEN_GEOMETRY:-1600x1000x24}"
 SERVER="${MULTIREGISTRATOR_SERVER:-server:8120}"
 
+# A restart can leave a stale X lock behind; clean it up first.
+rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
+mkdir -p /tmp/.X11-unix
+
 # Start Xvfb and wait until it accepts connections.
 Xvfb :99 -screen 0 "$GEOMETRY" -nolisten tcp &
 XVFB_PID=$!

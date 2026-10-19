@@ -27,7 +27,9 @@ class ServerApiClient:
         timeout: float = 5.0,
         session: Optional[requests.Session] = None,
     ) -> None:
-        self.host = host
+        # 0.0.0.0 is a bind address, not a connectable host on Windows
+        # (WinError 10049); treat it as loopback so a copied server setting works.
+        self.host = "127.0.0.1" if host.strip() in ("0.0.0.0", "::", "") else host
         self.port = int(port)
         self.timeout = float(timeout)
         self._session = session or requests.Session()
